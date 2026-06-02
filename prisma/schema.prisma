@@ -1,0 +1,22 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+model Task {
+  id           String   @id @default(cuid())
+  type         String
+  status       String   @default("pending")
+  prompt       String
+  params       String
+  remoteTaskId String?
+  inputPath    String?
+  outputPath   String?
+  error        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+}
