@@ -1,23 +1,50 @@
+import { generateAgnesImage } from "@/lib/agnes";
 import { db } from "@/lib/db";
-import { generateImage } from "@/lib/openai";
+import { AppError, errorResponse } from "@/lib/error-codes";
+import { generateIdeogramImage, isIdeogramModel } from "@/lib/ideogram";
 import { saveBuffer } from "@/lib/storage";
 import { errorMessage, publicTask } from "@/lib/tasks";
 
+const DEFAULT_MODEL = "agnes-image-2.1-flash";
+
+function parseSize(size: string) {
+  const [width, height] = size.split("x").map((value) => Number(value));
+  return {
+    width: Number.isFinite(width) && width > 0 ? width : 1024,
+    height: Number.isFinite(height) && height > 0 ? height : 1024,
+  };
+}
+
 export async function POST(request: Request) {
-  if (!process.env.OPENAI_API_KEY?.trim()) return Response.json({ error: "尚未配置 OPENAI_API_KEY，请在 .env 中填写后重启服务" }, { status: 503 });
   const body = await request.json();
   const prompt = String(body.prompt ?? "").trim();
   const size = String(body.size ?? "1024x1024");
-  const quality = String(body.quality ?? "medium");
-  if (!prompt) return Response.json({ error: "请输入图片提示词" }, { status: 400 });
-  const task = await db.task.create({ data: { type: "image", status: "processing", prompt, params: JSON.stringify({ size, quality, model: "gpt-image-2" }) } });
+  const quality = String(body.quality ?? "2k");
+  const model = String(body.model ?? DEFAULT_MODEL);
+  const seed = Number(body.seed ?? 0);
+  if (!prompt) return errorResponse(new AppError("EMPTY_IMAGE_PROMPT", 400), 400);
+  if (model === DEFAULT_MODEL && !process.env.AGNES_API_KEY?.trim()) {
+    return errorResponse(new AppError("MISSING_AGNES_API_KEY", 503), 503);
+  }
+
+  const task = await db.task.create({
+    data: {
+      type: "image",
+      status: "processing",
+      prompt,
+      params: JSON.stringify({ size, quality, model, seed }),
+    },
+  });
+
   try {
-    const image = await generateImage(prompt, size, quality);
+    const image = isIdeogramModel(model)
+      ? await generateIdeogramImage({ prompt, model, seed, ...parseSize(size) })
+      : await generateAgnesImage(prompt);
     const outputPath = await saveBuffer("images", `${task.id}.png`, image);
     return Response.json(publicTask(await db.task.update({ where: { id: task.id }, data: { status: "completed", outputPath } })));
   } catch (error) {
-    const message = errorMessage(error);
-    await db.task.update({ where: { id: task.id }, data: { status: "failed", error: message } });
-    return Response.json({ error: message, taskId: task.id }, { status: 502 });
+    const code = errorMessage(error);
+    await db.task.update({ where: { id: task.id }, data: { status: "failed", error: code } });
+    return errorResponse(error, 502);
   }
 }

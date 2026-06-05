@@ -1,4 +1,5 @@
 import type { Task } from "@prisma/client";
+import { errorCodeFromUnknown } from "@/lib/error-codes";
 import { storageUrl } from "@/lib/storage";
 
 export function publicTask(task: Task) {
@@ -11,11 +12,12 @@ export function publicTask(task: Task) {
     inputUrl: storageUrl(task.inputPath),
     outputUrl: storageUrl(task.outputPath),
     error: task.error,
+    errorCode: task.error,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };
 }
 
 export function errorMessage(error: unknown) {
-  return error instanceof Error ? error.message : "发生未知错误";
+  return errorCodeFromUnknown(error);
 }

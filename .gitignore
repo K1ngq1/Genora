@@ -3,6 +3,7 @@ node_modules/
 
 # Next.js build output
 .next/
+.next-build/
 out/
 
 # Local environment variables and secrets
@@ -37,3 +38,5 @@ pnpm-debug.log*
 
 # Local workspace artifacts
 .agents
+.venv-ideogram/
+vendor/

@@ -4,7 +4,7 @@ import "./workflow.css";
 import "@xyflow/react/dist/style.css";
 
 export const metadata: Metadata = {
-  title: "Agnes Studio",
+  title: "Genora",
   description: "AI 图片与视频生成工作台",
 };
 
