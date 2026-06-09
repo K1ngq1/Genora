@@ -51,7 +51,7 @@ export class AppError extends Error {
   }
 }
 
-export function isErrorCode(value: unknown): value is ErrorCode {
+function isErrorCode(value: unknown): value is ErrorCode {
   return typeof value === "string" && value in ERROR_MESSAGES_ZH;
 }
 

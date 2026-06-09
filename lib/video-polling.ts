@@ -1,0 +1,2 @@
+export const VIDEO_POLL_INTERVAL_MS = 5_000;
+export const VIDEO_POLL_MAX_ATTEMPTS = 180;

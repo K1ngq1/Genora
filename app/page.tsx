@@ -64,6 +64,7 @@ type WorkData = {
   taskId?: string;
   busy?: boolean;
   error?: string;
+  canResume?: boolean;
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;

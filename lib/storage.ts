@@ -1,4 +1,4 @@
-import { mkdir, readFile, writeFile } from "node:fs/promises";
+import { mkdir, writeFile } from "node:fs/promises";
 import path from "node:path";
 
 const ROOT = path.join(process.cwd(), "storage");
@@ -9,10 +9,6 @@ export async function saveBuffer(folder: "images" | "videos" | "uploads", name: 
   const filePath = path.join(dir, name);
   await writeFile(filePath, data);
   return filePath;
-}
-
-export async function readStoredFile(filePath: string) {
-  return readFile(filePath);
 }
 
 export function storageUrl(filePath?: string | null) {

@@ -1,5 +1,6 @@
 generator client {
   provider = "prisma-client-js"
+  output   = "../generated/prisma"
 }
 
 datasource db {
@@ -19,4 +20,5 @@ model Task {
   error        String?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
+  canResume    Boolean  @default(false)
 }
