@@ -40,3 +40,12 @@ pnpm-debug.log*
 .agents
 .venv-ideogram/
 vendor/
+
+# Netlify build artifacts
+
+.netlify/
+
+
+# Generated Prisma client
+
+generated/

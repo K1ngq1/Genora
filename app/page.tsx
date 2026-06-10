@@ -43,6 +43,7 @@ type IconName =
   | "fit"
   | "settings"
   | "bulb"
+  | "camera"
   | "stop";
 
 type WorkData = {
@@ -55,6 +56,8 @@ type WorkData = {
   motionPreset?: MotionPreset;
   duration: number;
   settingsOpen?: boolean;
+  negativePrompt?: string;
+  negativePromptOpen?: boolean;
   url?: string;
   startFrameUrl?: string;
   startFrameName?: string;
@@ -104,7 +107,7 @@ const ERROR_TEXT_ZH: Record<string, string> = {
   UNKNOWN_ERROR: "发生未知错误，请稍后重试。",
   INVALID_JSON_RESPONSE: "服务返回了非 JSON 内容，已阻止乱码直接显示。",
   MISSING_OPENAI_API_KEY: "尚未配置 OPENAI_API_KEY，请在 .env 中填写后重启服务。",
-  MISSING_AGNES_API_KEY: "尚未配置 AGNES_API_KEY，请在 .env 中填写后重启服务。",
+  MISSING_AGNES_API_KEY: "尚未配置 Agnes API Key，请在 .env 中配置对应服务的 Key 后重启。",
   EMPTY_TEXT_PROMPT: "请输入文本提示词。",
   EMPTY_IMAGE_PROMPT: "请输入图片提示词。",
   EMPTY_VIDEO_PROMPT: "请输入视频提示词。",
@@ -224,6 +227,20 @@ function responseError(body: Record<string, unknown>, fallback = "UNKNOWN_ERROR"
   return localizeError(body.errorCode ?? body.error ?? fallback);
 }
 
+function statusLabel(status: string): string {
+  switch (status) {
+    case "pending":
+    case "queued":
+      return "排队中";
+    case "processing":
+      return "生成中";
+    case "downloading":
+      return "即将完成";
+    default:
+      return "生成中";
+  }
+}
+
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
     text: <path d="M5 6V4h14v2M12 4v16m-4 0h8" />,
@@ -281,6 +298,12 @@ function Icon({ name }: { name: IconName }) {
         <path d="M8 14a6 6 0 1 1 8 0c-1.2.9-1.7 1.8-1.8 3H9.8c-.1-1.2-.6-2.1-1.8-3Z" />
       </>
     ),
+    camera: (
+      <>
+        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
+        <circle cx="12" cy="13" r="3" />
+      </>
+    ),
     stop: <rect x="8" y="8" width="8" height="8" rx="1.5" />,
   };
 
@@ -294,9 +317,9 @@ function Icon({ name }: { name: IconName }) {
 function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const picker = useRef<HTMLInputElement>(null);
   const startFramePicker = useRef<HTMLInputElement>(null);
-  const endFramePicker = useRef<HTMLInputElement>(null);
   const meta = KIND_META[data.kind];
   const isMedia = data.kind.startsWith("media-");
+  const [motionOpen, setMotionOpen] = useState(false);
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
   const importMedia = (file?: File) => {
     if (!file) return;
@@ -364,21 +387,30 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
         <div className="prompt-pop nodrag" onMouseDown={(event) => event.stopPropagation()}>
           {data.kind === "video" && (
             <div className="frame-strip">
-              <span className="prompt-tool-square">
-                <Icon name="spark" />
+              <span className="prompt-tool-square" onClick={() => setMotionOpen(!motionOpen)} style={{ cursor: "pointer" }}>
+                <Icon name="camera" />
               </span>
-              <span className="frame-divider" />
+              {motionOpen && (
+                <div className="motion-popover glass">
+                  <header><b>镜头运动</b><button onClick={() => setMotionOpen(false)}><Icon name="close" /></button></header>
+                  <div className="motion-options">
+                    {MOTION_PRESETS.map((motion) => (
+                      <button
+                        key={motion.id}
+                        className={(data.motionPreset ?? "auto") === motion.id ? "selected" : ""}
+                        onClick={() => { data.update(id, { motionPreset: motion.id }); setMotionOpen(false); }}
+                      >
+                        {motion.label}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              )}
               <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()}>
-                {data.startFrameUrl ? <img src={data.startFrameUrl} alt="首帧" /> : <Icon name="plus" />}
-                <span>{data.startFrameUrl ? "首帧" : "首帧"}</span>
-              </button>
-              <span className="frame-link">⇄</span>
-              <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()}>
-                {data.endFrameUrl ? <img src={data.endFrameUrl} alt="尾帧" /> : <Icon name="plus" />}
-                <span>{data.endFrameUrl ? "尾帧" : "尾帧"}</span>
+                {data.startFrameUrl ? <img src={data.startFrameUrl} alt="首帧" /> : <Icon name="upload" />}
+                <span>{data.startFrameUrl ? "首帧" : "上传图片"}</span>
               </button>
               <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importFrame("start", event.target.files?.[0])} />
-              <input ref={endFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importFrame("end", event.target.files?.[0])} />
             </div>
           )}
           <textarea
@@ -445,25 +477,23 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                         <div><small>1 秒</small><small>≤ 441 帧</small><small>18 秒</small></div>
                       </div>
                     )}
-                    {data.kind === "video" && (
-                      <div className="option-block">
-                        <span>????</span>
-                        <div className="motion-options">
-                          {MOTION_PRESETS.map((motion) => (
-                            <button
-                              key={motion.id}
-                              className={(data.motionPreset ?? "auto") === motion.id ? "selected" : ""}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                data.update(id, { motionPreset: motion.id });
-                              }}
-                            >
-                              {motion.label}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
+                  </div>
+                )}
+              </div>
+            )}
+            {data.kind === "video" && (
+              <div className={`negative-prompt-details ${data.negativePromptOpen ? "open" : ""}`}>
+                <button type="button" className="negative-prompt-trigger" onClick={(event) => { event.stopPropagation(); data.update(id, { negativePromptOpen: !data.negativePromptOpen }); }}>
+                  反向提示词
+                </button>
+                {data.negativePromptOpen && (
+                  <div className="negative-prompt-dialog glass">
+                    <textarea
+                      className="negative-prompt-input"
+                      value={data.negativePrompt ?? ""}
+                      onChange={(event) => data.update(id, { negativePrompt: event.target.value })}
+                      placeholder="描述不想在视频中出现的元素，如：模糊、低质量、扭曲、文字、水印..."
+                    />
                   </div>
                 )}
               </div>
@@ -573,11 +603,11 @@ function WorkflowCanvas() {
           return;
         }
         if (task.status === "failed") {
-          update(nodeId, { busy: false, error: localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED") });
+          update(nodeId, { busy: false, result: "生成失败", error: localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED") });
           return;
         }
         if (attempt < 720) {
-          update(nodeId, { busy: true, result: "视频生成中，正在等待 Agnes 回传..." });
+          update(nodeId, { busy: true, result: statusLabel(task.status ?? "processing") });
           pollTask(nodeId, taskId, attempt + 1);
         } else {
           update(nodeId, { busy: false, error: "Agnes 仍在后台处理中，请稍后刷新任务继续同步。" });
@@ -606,7 +636,7 @@ function WorkflowCanvas() {
     if (node.data.kind === "text" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 AGNES_API_KEY。" });
     if ((node.data.kind === "image" || node.data.kind === "video") && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 AGNES_API_KEY。" });
 
-    update(id, { busy: true, error: "", result: node.data.kind === "video" ? "视频任务提交中..." : undefined });
+    update(id, { busy: true, error: "", result: node.data.kind === "video" ? "排队中" : undefined });
     try {
       let response: Response;
       if (node.data.kind === "text") {
@@ -640,6 +670,7 @@ function WorkflowCanvas() {
         }
         const form = new FormData();
         form.set("prompt", prompt);
+        if (node.data.negativePrompt) form.set("negativePrompt", node.data.negativePrompt);
         form.set("width", String(width));
         form.set("height", String(height));
         form.set("numFrames", String(safeFrames));
@@ -666,7 +697,7 @@ function WorkflowCanvas() {
       const body = await readJson(response);
       if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
       if (node.data.kind === "video") {
-        update(id, { busy: true, taskId: body.id, result: "视频生成中，正在等待 Agnes 回传..." });
+        update(id, { busy: true, taskId: body.id, result: "排队中" });
         pollTask(id, body.id);
       } else {
         update(id, { busy: false, result: body.text, url: body.outputUrl, error: "" });
@@ -692,6 +723,7 @@ function WorkflowCanvas() {
         model: kind === "image" ? "agnes-image-2.1-flash" : undefined,
         motionPreset: kind === "video" ? "auto" : undefined,
         duration: 5,
+        negativePrompt: "",
         url: file ? URL.createObjectURL(file) : undefined,
         update,
         remove,
@@ -813,7 +845,7 @@ function WorkflowCanvas() {
   return (
     <main className={`canvas-shell ${agentOpen ? "agent-open" : ""} theme-${themeTone}`} style={{ "--accent": accentColor, "--font-scale": `${fontScale / 100}` } as React.CSSProperties}>
       <header className={`topbar ${agentOpen ? "agent-open" : ""}`}>
-        <div className="brand"><img src="/assets/genora-logo.png" alt="" /><b>Genora</b><em>∞</em></div>
+      <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
         <div className="top-title"><i className="status-dot" /><span>Untitled Space</span><small>已自动保存</small></div>
         <div className="top-actions"><button className="glass-pill"><Icon name="history" />作品库</button></div>
       </header>

@@ -9,14 +9,28 @@ const RETRYABLE_STATUS = new Set([429, 500, 520, 522, 524, 503]);
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = Number(process.env.AGNES_REQUEST_TIMEOUT_MS ?? 180_000);
 
-function apiKey() {
-  const value = process.env.AGNES_API_KEY?.trim();
-  if (!value) throw new AppError("MISSING_AGNES_API_KEY", 503);
-  return value;
+type AgnesService = "image" | "text" | "video";
+
+function apiKey(service: AgnesService) {
+  const keyMap: Record<AgnesService, string | undefined> = {
+    image: process.env.AGNES_IMAGE_2_1_FLASH_API_KEY,
+    text: process.env.AGNES_1_5_FLASH_API_KEY,
+    video: process.env.AGNES_VIDEO_V2_0_API_KEY,
+  };
+  const raw = keyMap[service]?.trim();
+  if (!raw) {
+    const envNames: Record<AgnesService, string> = {
+      image: "AGNES_IMAGE_2_1_FLASH_API_KEY",
+      text: "AGNES_1_5_FLASH_API_KEY",
+      video: "AGNES_VIDEO_V2_0_API_KEY",
+    };
+    throw new AppError("MISSING_AGNES_API_KEY", 503, `缺少 ${envNames[service]}，请在 .env 中配置后重启`);
+  }
+  return raw;
 }
 
-function wait(milliseconds: number) {
-  return new Promise((resolve) => setTimeout(resolve, milliseconds));
+async function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
 function stripHtml(text: string) {
@@ -51,14 +65,12 @@ async function downloadBuffer(url: string) {
   try {
     const response = await fetch(url);
     if (response.ok) return Buffer.from(await response.arrayBuffer());
-  } catch {
-    // Fall through to the Node https fallback below.
-  }
+  } catch { /* fall through to Node https */ }
 
   return new Promise<Buffer>((resolve, reject) => {
     get(url, (response) => {
       if ((response.statusCode ?? 500) >= 400) {
-        reject(new AppError("DOWNLOAD_FAILED", 502, String(response.statusCode)));
+        reject(new AppError("DOWNLOAD_FAILED", 502, `下载失败 (HTTP ${response.statusCode})`));
         response.resume();
         return;
       }
@@ -70,7 +82,8 @@ async function downloadBuffer(url: string) {
   });
 }
 
-async function request(url: string, init?: RequestInit) {
+async function request(url: string, service: AgnesService, init?: RequestInit) {
+  const key = apiKey(service);
   for (let attempt = 0; attempt <= MAX_RETRIES; attempt += 1) {
     let response: Response;
     try {
@@ -78,14 +91,14 @@ async function request(url: string, init?: RequestInit) {
         ...init,
         signal: init?.signal ?? AbortSignal.timeout(Number.isFinite(REQUEST_TIMEOUT_MS) ? REQUEST_TIMEOUT_MS : 45_000),
         headers: {
-          Authorization: `Bearer ${apiKey()}`,
+          Authorization: `Bearer ${key}`,
           "Content-Type": "application/json",
           ...init?.headers,
         },
       });
     } catch (error) {
       if (error instanceof Error && (error.name === "AbortError" || /timeout/i.test(error.message))) {
-        throw new AppError("AGNES_REQUEST_TIMEOUT", 504, "Agnes request timed out");
+        throw new AppError("AGNES_REQUEST_TIMEOUT", 504, "Agnes 接口超时未响应，远端队列可能繁忙");
       }
       throw error;
     }
@@ -105,7 +118,7 @@ async function request(url: string, init?: RequestInit) {
     await wait(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1200 * 2 ** attempt);
   }
 
-  throw new AppError("AGNES_UPSTREAM_ERROR", 502);
+  throw new AppError("AGNES_UPSTREAM_ERROR", 502, "Agnes 上游多次重试后仍失败");
 }
 
 export async function generateAgnesText(prompt: string) {
@@ -113,7 +126,7 @@ export async function generateAgnesText(prompt: string) {
 }
 
 export async function generateAgnesMessages(messages: unknown[]) {
-  const result = await request(`${API_BASE}/chat/completions`, {
+  const result = await request(`${API_BASE}/chat/completions`, "text", {
     method: "POST",
     body: JSON.stringify({ model: "agnes-2.0-flash", messages }),
   });
@@ -123,7 +136,7 @@ export async function generateAgnesMessages(messages: unknown[]) {
 }
 
 export async function generateAgnesImage(prompt: string) {
-  const result = await request(`${API_BASE}/images/generations`, {
+  const result = await request(`${API_BASE}/images/generations`, "image", {
     method: "POST",
     body: JSON.stringify({ model: "agnes-image-2.1-flash", prompt }),
   });
@@ -140,10 +153,10 @@ function findValue(value: unknown, keys: Set<string>): unknown {
       if (found !== undefined && found !== null && found !== "") return found;
     }
   } else if (value && typeof value === "object") {
-    for (const [name, child] of Object.entries(value)) {
+    for (const [name, child] of Object.entries(value as Record<string, unknown>)) {
       if (keys.has(name.toLowerCase()) && child !== undefined && child !== null && child !== "") return child;
     }
-    for (const child of Object.values(value)) {
+    for (const child of Object.values(value as Record<string, unknown>)) {
       const found = findValue(child, keys);
       if (found !== undefined && found !== null && found !== "") return found;
     }
@@ -151,21 +164,21 @@ function findValue(value: unknown, keys: Set<string>): unknown {
 }
 
 export async function createAgnesVideo(payload: Record<string, unknown>) {
-  const result = await request(`${API_BASE}/videos`, { method: "POST", body: JSON.stringify(payload) });
+  const result = await request(`${API_BASE}/videos`, "video", { method: "POST", body: JSON.stringify(payload) });
   const id = findValue(result, new Set(["task_id", "id"]));
   if (!id) throw new AppError("AGNES_MISSING_TASK_ID", 502, JSON.stringify(result).slice(0, 300));
   return String(id);
 }
 
 export async function syncAgnesVideo(remoteTaskId: string, localTaskId: string) {
-  const result = await request(`${API_BASE}/videos/${remoteTaskId}`);
+  const result = await request(`${API_BASE}/videos/${remoteTaskId}`, "video");
   const status = String(findValue(result, new Set(["status", "state"])) ?? "").toLowerCase();
   if (FAILURE.has(status)) {
     return { status: "failed", error: "AGNES_VIDEO_FAILED" };
   }
 
-  const videoUrl = findValue(result, new Set(["video_url", "output_url", "download_url", "url", "remixed_from_video_id"]));
-  if (SUCCESS.has(status) || typeof videoUrl === "string") {
+  const videoUrl = findValue(result, new Set(["video_url", "output_url", "download_url", "url"]));
+  if (SUCCESS.has(status) || (typeof videoUrl === "string" && videoUrl.startsWith("http"))) {
     if (typeof videoUrl !== "string" || !videoUrl.startsWith("http")) {
       throw new AppError("AGNES_VIDEO_MISSING_URL", 502, JSON.stringify(result).slice(0, 300));
     }
@@ -174,4 +187,15 @@ export async function syncAgnesVideo(remoteTaskId: string, localTaskId: string) 
   }
 
   return { status: "processing" };
+}
+
+// ----- 公开辅助：检查配置 -----
+export function isAgnesConfigured(service?: AgnesService) {
+  if (service) {
+    try { apiKey(service); return true; } catch { return false; }
+  }
+  try { apiKey("image"); return true; } catch { /* empty */ }
+  try { apiKey("text"); return true; } catch { /* empty */ }
+  try { apiKey("video"); return true; } catch { /* empty */ }
+  return false;
 }

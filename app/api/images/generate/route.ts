@@ -1,4 +1,4 @@
-import { generateAgnesImage } from "@/lib/agnes";
+import { generateAgnesImage, isAgnesConfigured } from "@/lib/agnes";
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { generateIdeogramImage, isIdeogramModel } from "@/lib/ideogram";
@@ -19,11 +19,10 @@ export async function POST(request: Request) {
   const body = await request.json();
   const prompt = String(body.prompt ?? "").trim();
   const size = String(body.size ?? "1024x1024");
-  const quality = String(body.quality ?? "2k");
   const model = String(body.model ?? DEFAULT_MODEL);
   const seed = Number(body.seed ?? 0);
   if (!prompt) return errorResponse(new AppError("EMPTY_IMAGE_PROMPT", 400), 400);
-  if (model === DEFAULT_MODEL && !process.env.AGNES_API_KEY?.trim()) {
+  if (model === DEFAULT_MODEL && !isAgnesConfigured("image")) {
     return errorResponse(new AppError("MISSING_AGNES_API_KEY", 503), 503);
   }
 
@@ -32,7 +31,7 @@ export async function POST(request: Request) {
       type: "image",
       status: "processing",
       prompt,
-      params: JSON.stringify({ size, quality, model, seed }),
+      params: JSON.stringify({ size, model, seed }),
     },
   });
 
