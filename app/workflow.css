@@ -88,3 +88,12 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
 .negative-prompt-input{width:100%;min-height:80px;max-height:200px;resize:vertical;border:0;outline:0;border-radius:12px;padding:10px;background:#ffffff0b;color:#fff;font-size:12px;line-height:1.6;font-family:inherit}
 .negative-prompt-input:focus{border:1px solid #ff6b6b60;outline:0}
 .negative-prompt-input::placeholder{color:#ffffff42}
+
+.node-result-card{display:flex;flex-direction:column;align-items:center;gap:12px;padding:24px 16px}
+.node-result-card .text-result{font-size:14px;color:#ffd866;text-align:center;margin:0}
+.node-resume-section{display:flex;flex-direction:column;align-items:center;gap:10px;width:100%}
+.resume-button{padding:10px 24px;border:1px solid #a996ff66;border-radius:12px;background:linear-gradient(135deg,#a996ff22,#7c6aff22);color:#c8b8ff;font-size:13px;font-weight:700;cursor:pointer;transition:.18s;font-family:inherit}
+.resume-button:hover{background:linear-gradient(135deg,#a996ff44,#7c6aff44);border-color:#a996ff;transform:translateY(-1px)}
+.node-debug{display:flex;flex-direction:column;gap:3px;width:100%;padding:8px 12px;border-radius:8px;background:#ffffff08;font-size:10px;color:#ffffff60;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-debug span{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.node-debug b{color:#ffffff88}

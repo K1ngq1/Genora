@@ -68,6 +68,7 @@ type WorkData = {
   busy?: boolean;
   error?: string;
   canResume?: boolean;
+  lastProviderStatus?: string | null;
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
@@ -236,6 +237,8 @@ function statusLabel(status: string): string {
       return "生成中";
     case "downloading":
       return "即将完成";
+    case "timeout":
+      return "查询超时";
     default:
       return "生成中";
   }
@@ -375,7 +378,22 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             <p>{data.error}</p>
           </div>
         ) : data.result ? (
-          <p className="text-result">{data.result}</p>
+          <div className="node-result-card">
+            <p className="text-result">{data.result}</p>
+            {data.canResume && data.kind === "video" && (
+              <div className="node-resume-section">
+                <button className="resume-button" onClick={() => data.generate(id)}>
+                  继续查询结果
+                </button>
+                <div className="node-debug">
+                  {data.taskId && <span><b>taskId:</b> {data.taskId}</span>}
+                  {data.lastProviderStatus && <span><b>上游状态:</b> {data.lastProviderStatus}</span>}
+                  <span><b>状态:</b> timeout</span>
+                  <span><b>错误:</b> AGNES_VIDEO_TIMEOUT</span>
+                </div>
+              </div>
+            )}
+          </div>
         ) : (
           <div className="node-blank">
             <Icon name={meta.icon} />
@@ -385,9 +403,9 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
       </div>
       {!isMedia && (
         <div className="prompt-pop nodrag" onMouseDown={(event) => event.stopPropagation()}>
-          {data.kind === "video" && (
+          {(data.kind === "image" || data.kind === "video") && (
             <div className="frame-strip">
-              <span className="prompt-tool-square" onClick={() => setMotionOpen(!motionOpen)} style={{ cursor: "pointer" }}>
+              <span className="prompt-tool-square" onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
                 <Icon name="camera" />
               </span>
               {motionOpen && (
@@ -550,7 +568,7 @@ function WorkflowCanvas() {
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { messagesRef.current = agentMessages; }, [agentMessages]);
   useEffect(() => { attachmentsRef.current = agentAttachments; }, [agentAttachments]);
-  useEffect(() => { fetch("/api/config").then((response) => response.json()).then(setConfig).catch(() => undefined); }, []);
+  useEffect(() => { fetch("/api/config").then(readJson).then(setConfig).catch(() => undefined); }, []);
   useEffect(() => {
     if (agentOpen) setSuggestionOffset(Math.floor(Math.random() * SUGGESTIONS.length));
   }, [agentOpen]);
@@ -599,23 +617,44 @@ function WorkflowCanvas() {
         if (!response.ok) throw new Error(responseError(task, "TASK_NOT_FOUND"));
         if (interruptedRef.current.has(nodeId)) return;
         if ((task.status === "completed" || task.status === "succeeded") && task.outputUrl) {
-          update(nodeId, { busy: false, url: task.outputUrl, result: undefined, error: "" });
+          update(nodeId, { busy: false, url: task.outputUrl, result: undefined, error: "", canResume: false });
           return;
         }
         if (task.status === "failed") {
-          update(nodeId, { busy: false, result: "生成失败", error: localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED") });
+          update(nodeId, { busy: false, result: "生成失败", error: localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"), canResume: false });
           return;
         }
-        if (attempt < 720) {
+        // timeout with canResume: stop polling and show resume button
+        if (task.status === "timeout") {
+          if (task.canResume) {
+            update(nodeId, {
+              busy: false,
+              result: "查询超时",
+              error: "",
+              canResume: true,
+              lastProviderStatus: task.lastProviderStatus ?? null,
+            });
+            return;
+          }
+          // timeout without canResume: keep polling
+          if (attempt < 600) {
+            update(nodeId, { busy: true, result: statusLabel(task.status) });
+            pollTask(nodeId, taskId, attempt + 1);
+          } else {
+            update(nodeId, { busy: false, error: "视频生成超时，请稍后刷新任务或重试。" });
+          }
+          return;
+        }
+        if (attempt < 600) {
           update(nodeId, { busy: true, result: statusLabel(task.status ?? "processing") });
           pollTask(nodeId, taskId, attempt + 1);
         } else {
-          update(nodeId, { busy: false, error: "Agnes 仍在后台处理中，请稍后刷新任务继续同步。" });
+          update(nodeId, { busy: false, error: "视频生成超时，请稍后刷新任务或重试。" });
         }
       } catch (error) {
         update(nodeId, { busy: false, error: error instanceof Error ? localizeError(error.message) : "查询视频任务失败" });
       }
-    }, 2500);
+    }, 3000);
   }, [update]);
 
   const generate = useCallback(async (id: string) => {
@@ -624,6 +663,19 @@ function WorkflowCanvas() {
     if (node.data.busy) {
       interruptedRef.current.add(id);
       update(id, { busy: false, result: "已打断生成同步，远端任务可能仍在后台继续。", error: "" });
+      return;
+    }
+    // If canResume and has taskId, call resume API instead of generating new
+    if (node.data.canResume && node.data.taskId) {
+      try {
+        update(id, { busy: true, result: "恢复查询中...", error: "", canResume: false });
+        const response = await fetch(`/api/tasks/${node.data.taskId}/resume`, { method: "PATCH" });
+        const body = await readJson(response);
+        if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
+        pollTask(id, node.data.taskId);
+      } catch (error) {
+        update(id, { busy: false, error: error instanceof Error ? localizeError(error.message) : "恢复查询失败", canResume: true });
+      }
       return;
     }
     interruptedRef.current.delete(id);
@@ -846,7 +898,7 @@ function WorkflowCanvas() {
     <main className={`canvas-shell ${agentOpen ? "agent-open" : ""} theme-${themeTone}`} style={{ "--accent": accentColor, "--font-scale": `${fontScale / 100}` } as React.CSSProperties}>
       <header className={`topbar ${agentOpen ? "agent-open" : ""}`}>
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
-        <div className="top-title"><i className="status-dot" /><span>Untitled Space</span><small>已自动保存</small></div>
+        <div className="top-title"><i className="status-dot" /><span>Genora Space</span><small>已自动保存</small></div>
         <div className="top-actions"><button className="glass-pill"><Icon name="history" />作品库</button></div>
       </header>
 

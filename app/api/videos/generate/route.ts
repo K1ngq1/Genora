@@ -1,10 +1,8 @@
-import { readFile } from "node:fs/promises";
-import { createAgnesVideo } from "@/lib/agnes";
-import { combineGenerationPrompts } from "@/lib/prompt-options";
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
-import { mimeFromName, saveBuffer } from "@/lib/storage";
-import { errorMessage, publicTask } from "@/lib/tasks";
+import { saveBuffer } from "@/lib/storage";
+import { publicTask } from "@/lib/tasks";
+import { scheduleVideoTask } from "@/lib/video-task-runner";
 
 const MAX_UPLOAD = 10 * 1024 * 1024;
 const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -20,10 +18,6 @@ async function saveImageUpload(upload: File) {
   const extension = upload.type === "image/png" ? "png" : upload.type === "image/webp" ? "webp" : "jpg";
   const path = await saveBuffer("uploads", `${crypto.randomUUID()}.${extension}`, Buffer.from(await upload.arrayBuffer()));
   return { path, mime: upload.type };
-}
-
-async function imageDataUrl(path: string, mime?: string) {
-  return `data:${mime ?? mimeFromName(path)};base64,${(await readFile(path)).toString("base64")}`;
 }
 
 function normalizeNumFrames(value: number) {
@@ -62,14 +56,14 @@ export async function POST(request: Request) {
   const numFrames = Math.min(requestedFrames, SAFE_VIDEO_MAX_FRAMES);
   const frameRate = Number(form.get("frameRate") ?? DEFAULT_FRAME_RATE);
 
-  const startFrameUpload = form.get("startFrame");
-  const endFrameUpload = form.get("endFrame");
   let startFramePath: string | undefined;
   let endFramePath: string | undefined;
   let inputPath: string | undefined;
   const referenceImages: Array<{ path: string; mime: string }> = [];
 
   try {
+    const startFrameUpload = form.get("startFrame");
+    const endFrameUpload = form.get("endFrame");
     if (startFrameUpload && startFrameUpload instanceof File && startFrameUpload.size > 0) {
       startFramePath = (await saveImageUpload(startFrameUpload)).path;
     }
@@ -93,31 +87,14 @@ export async function POST(request: Request) {
   const task = await db.task.create({
     data: {
       type: inputPath ? "image-to-video" : "text-to-video",
-      status: "pending",
+      status: "processing",
       prompt,
       params: JSON.stringify({ width, height, numFrames, frameRate, model: "agnes-video-v2.0", negativePrompt: negativePrompt || undefined }),
       inputPath,
     },
   });
 
-  try {
-    const combinedPrompt = combineGenerationPrompts(prompt, negativePrompt);
-    const payload: Record<string, unknown> = {
-      model: "agnes-video-v2.0",
-      prompt: combinedPrompt,
-      width,
-      height,
-      num_frames: numFrames,
-      frame_rate: frameRate,
-    };
-    if (negativePrompt) payload.negative_prompt = negativePrompt;
-    if (inputPath) payload.image = await imageDataUrl(inputPath);
+  scheduleVideoTask(task.id);
 
-    const remoteTaskId = await createAgnesVideo(payload);
-    return Response.json(publicTask(await db.task.update({ where: { id: task.id }, data: { status: "queued", remoteTaskId } })));
-  } catch (error) {
-    const code = errorMessage(error);
-    await db.task.update({ where: { id: task.id }, data: { status: "failed", error: code } });
-    return errorResponse(error, 502);
-  }
+  return Response.json(publicTask(task));
 }

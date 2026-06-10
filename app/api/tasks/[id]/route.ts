@@ -3,6 +3,7 @@ import { AppError, errorResponse } from "@/lib/error-codes";
 import { startImageTask } from "@/lib/image-task-runner";
 import { publicTask } from "@/lib/tasks";
 import { syncVideoTask } from "@/lib/video-task-sync";
+import { startVideoTask } from "@/lib/video-task-runner";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
@@ -11,6 +12,11 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 
   if (task.type === "image" && ["pending", "processing"].includes(task.status)) {
     void startImageTask(task.id);
+    task = await db.task.findUnique({ where: { id } }) ?? task;
+  }
+
+  if (task.type !== "image" && task.status === "processing" && !task.remoteTaskId) {
+    void startVideoTask(task.id);
     task = await db.task.findUnique({ where: { id } }) ?? task;
   }
 

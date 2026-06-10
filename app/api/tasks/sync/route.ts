@@ -7,7 +7,6 @@ export async function POST() {
     synchronized: results.length,
     tasks: results.map((result) => ({
       ...publicTask(result.task),
-      
       syncError: result.syncError ?? null,
     })),
   });

@@ -1,4 +1,9 @@
 import type { Task } from "@/generated/prisma";
+
+function safeJsonParse(text: string): Record<string, unknown> {
+  if (!text) return {};
+  try { return JSON.parse(text); } catch { return {}; }
+}
 import { generateAgnesImage } from "@/lib/agnes";
 import { db } from "@/lib/db";
 import { generateIdeogramImage, isIdeogramModel } from "@/lib/ideogram";
@@ -27,7 +32,7 @@ async function executeImageTask(taskId: string) {
   if (!task || task.type !== "image" || !isActiveTaskStatus(task.status)) return task;
 
   await db.task.update({ where: { id: task.id }, data: { status: "processing", error: null } });
-  const params = JSON.parse(task.params) as ImageTaskParams;
+  const params = safeJsonParse(task.params) as ImageTaskParams;
   const model = params.model ?? "agnes-image-2.1-flash";
 
   try {
