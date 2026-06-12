@@ -1,4 +1,4 @@
-import type { Task } from "@/generated/prisma";
+import type { Task } from "@prisma/client";
 import { errorCodeFromUnknown } from "@/lib/error-codes";
 import { storageUrl } from "@/lib/storage";
 
@@ -19,7 +19,7 @@ export function publicTask(task: Task) {
     inputUrl: storageUrl(task.inputPath),
     outputUrl: storageUrl(task.outputPath),
     error: task.error,
-    errorCode: task.error,
+    errorCode: params.errorCode ?? task.error,
     canResume: task.canResume,
     lastProviderStatus: params.lastRemoteStatus ?? null,
     createdAt: task.createdAt,

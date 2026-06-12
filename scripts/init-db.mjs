@@ -16,8 +16,18 @@ db.exec(`
     "inputPath" TEXT,
     "outputPath" TEXT,
     "error" TEXT,
+    "canResume" BOOLEAN NOT NULL DEFAULT false,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
+  );
+  CREATE TABLE IF NOT EXISTS "Project" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "name" TEXT NOT NULL DEFAULT 'empty space',
+    "canvasData" TEXT NOT NULL,
+    "requiresRename" BOOLEAN NOT NULL DEFAULT true,
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    "lastOpenedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
 `);
 db.close();

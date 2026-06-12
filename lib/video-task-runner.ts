@@ -1,17 +1,15 @@
-import type { Task } from "@/generated/prisma";
+import type { Task } from "@prisma/client";
+import { createAgnesVideo } from "@/lib/agnes";
+import { combineGenerationPrompts } from "@/lib/prompt-options";
+import { db } from "@/lib/db";
+import { mimeFromName } from "@/lib/storage";
+import { errorMessage } from "@/lib/tasks";
+import { readFile } from "node:fs/promises";
 
 function safeJsonParse(text: string): Record<string, unknown> {
   if (!text) return {};
   try { return JSON.parse(text); } catch { return {}; }
 }
-import { createAgnesVideo, syncAgnesVideo } from "@/lib/agnes";
-import { combineGenerationPrompts } from "@/lib/prompt-options";
-import { db } from "@/lib/db";
-import { saveBuffer } from "@/lib/storage";
-import { errorMessage } from "@/lib/tasks";
-import { isActiveTaskStatus } from "@/lib/task-status";
-import { readFile } from "node:fs/promises";
-import { mimeFromName } from "@/lib/storage";
 
 type VideoTaskParams = {
   width: number;
@@ -39,11 +37,15 @@ function videoLog(section: string, detail: Record<string, unknown>) {
 }
 
 async function executeVideoTask(taskId: string) {
-  const task = await db.task.findUnique({ where: { id: taskId } });
-  if (!task || task.type === "image" || !isActiveTaskStatus(task.status)) return task;
+  const claim = await db.task.updateMany({
+    where: { id: taskId, status: "pending", remoteTaskId: null },
+    data: { status: "submitting", error: null, canResume: false },
+  });
+  if (claim.count === 0) return db.task.findUnique({ where: { id: taskId } });
 
+  const task = await db.task.findUnique({ where: { id: taskId } });
+  if (!task || task.type === "image") return task;
   videoLog("task-start", { taskId: task.id, localTaskId: task.id, type: task.type });
-  await db.task.update({ where: { id: task.id }, data: { status: "processing", error: null } });
 
   const params = safeJsonParse(task.params) as VideoTaskParams;
   const negativePrompt = params.negativePrompt ?? "";
@@ -74,10 +76,12 @@ async function executeVideoTask(taskId: string) {
   } catch (error) {
     const current = await db.task.findUnique({ where: { id: task.id } });
     if (!current || current.status === "cancelled") return current;
-    videoLog("task-failed", { localTaskId: task.id, errorCode: errorMessage(error), detail: String(error) });
+    const errorCode = errorMessage(error);
+    const timedOut = errorCode === "AGNES_REQUEST_TIMEOUT";
+    videoLog(timedOut ? "task-timeout" : "task-failed", { localTaskId: task.id, errorCode, detail: String(error) });
     return db.task.update({
       where: { id: task.id },
-      data: { status: "failed", error: errorMessage(error) },
+      data: { status: timedOut ? "timeout" : "failed", error: errorCode, canResume: false },
     });
   }
 }

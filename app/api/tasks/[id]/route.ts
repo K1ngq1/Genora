@@ -2,7 +2,7 @@ import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { startImageTask } from "@/lib/image-task-runner";
 import { publicTask } from "@/lib/tasks";
-import { syncVideoTask } from "@/lib/video-task-sync";
+import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sync";
 import { startVideoTask } from "@/lib/video-task-runner";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
@@ -15,18 +15,22 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     task = await db.task.findUnique({ where: { id } }) ?? task;
   }
 
-  if (task.type !== "image" && task.status === "processing" && !task.remoteTaskId) {
+  if (task.type !== "image" && task.status === "pending" && !task.remoteTaskId) {
     void startVideoTask(task.id);
     task = await db.task.findUnique({ where: { id } }) ?? task;
   }
 
+  if (task.type !== "image") ensureBackgroundVideoPolling();
   const synced = task.type === "image" ? { task } : await syncVideoTask(task);
   task = synced.task;
 
-  return Response.json({
-    ...publicTask(task),
-    syncError: synced.syncError ?? null,
-  });
+  return Response.json(
+    {
+      ...publicTask(task),
+      syncError: synced.syncError ?? null,
+    },
+    { headers: { "Cache-Control": "no-store" } },
+  );
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
@@ -39,7 +43,7 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
     where: { id },
     data: {
       status: timedOut ? "timeout" : "cancelled",
-      error: timedOut ? (task.type === "image" ? "TASK_POLL_TIMEOUT" : "AGNES_VIDEO_POLL_TIMEOUT") : "TASK_CANCELLED",
+      error: timedOut ? (task.type === "image" ? "TASK_POLL_TIMEOUT" : "AGNES_VIDEO_TIMEOUT") : "INTERRUPTED_BY_USER",
       canResume: timedOut && task.type !== "image" ? true : false,
     },
   });

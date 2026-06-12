@@ -12,6 +12,7 @@ export const ERROR_MESSAGES_ZH = {
   IMAGE_UPLOAD_TOO_LARGE: "上传图片不能超过 10 MB",
   IMAGE_TASK_NOT_FOUND: "找不到所选图片",
   INTERRUPTED_BY_USER: "任务已被用户打断",
+  TASK_POLL_TIMEOUT: "任务状态查询超时，请稍后重新查询",
   TASK_NOT_FOUND: "任务不存在",
   AGNES_LOCAL_IMAGE_UNSUPPORTED: "Agnes 暂时无法读取本地图片数据，请先接入公网对象存储后再使用",
   AGNES_RATE_LIMIT: "Agnes 当前上游负载较高，请稍后重试",

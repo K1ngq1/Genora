@@ -1,6 +1,8 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   addEdge,
   Background,
@@ -11,6 +13,7 @@ import {
   Position,
   ReactFlow,
   ReactFlowProvider,
+  SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
@@ -21,8 +24,9 @@ import {
   type NodeProps,
   type OnConnectEnd,
 } from "@xyflow/react";
+import { VIDEO_POLL_INTERVAL_MS, VIDEO_POLL_MAX_ATTEMPTS } from "@/lib/video-polling";
 
-type Kind = "text" | "image" | "video" | "media-image" | "media-video";
+type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
 type Ratio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 type Quality = "720p" | "1k" | "2k" | "4k";
 type ImageModel = "agnes-image-2.1-flash" | "ideogram-4-nf4" | "ideogram-4-fp8";
@@ -75,9 +79,25 @@ type WorkData = {
 };
 
 type WorkNode = Node<WorkData, "work">;
+type DeletedCanvasEntry = { nodes: WorkNode[]; edges: Edge[] };
+type StoredWorkData = Omit<WorkData, "update" | "remove" | "generate">;
+type StoredWorkNode = Omit<WorkNode, "data"> & { data: StoredWorkData };
 type MenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; sourceId?: string };
+type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; nodeId: string };
+type CanvasClipboard = { nodes: StoredWorkNode[]; edges: Edge[] };
 type AgentMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type AgentAttachment = { id: string; kind: "image" | "video"; name: string; url: string; dataUrl?: string };
+type CanvasProject = {
+  id: string;
+  name: string;
+  requiresRename: boolean;
+  canvasData: {
+    nodes: StoredWorkNode[];
+    edges: Edge[];
+    viewport: { x: number; y: number; zoom: number };
+  };
+};
+type SaveStatus = "loading" | "unsaved" | "saving" | "saved" | "error";
 
 const RATIOS: Ratio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 const QUALITIES: Quality[] = ["720p", "1k", "2k", "4k"];
@@ -118,6 +138,8 @@ const ERROR_TEXT_ZH: Record<string, string> = {
   IMAGE_UPLOAD_TOO_LARGE: "上传图片不能超过 10 MB。",
   IMAGE_TASK_NOT_FOUND: "找不到所选图片。",
   INTERRUPTED_BY_USER: "任务已被用户打断。",
+  TASK_POLL_TIMEOUT: "任务状态查询超时，请稍后重新查询。",
+  TIMEOUT: "已超时",
   TASK_NOT_FOUND: "任务不存在。",
   AGNES_LOCAL_IMAGE_UNSUPPORTED: "Agnes 暂时无法读取本地图片数据。当前本地 MVP 需要接入公网对象存储后再使用该图片。",
   AGNES_RATE_LIMIT: "Agnes 当前上游负载较高或请求过多，请稍后重试。",
@@ -162,11 +184,8 @@ const KIND_META: Record<Kind, { title: string; subtitle: string; icon: IconName 
   video: { title: "视频", subtitle: "Agnes Video V2.0", icon: "video" },
   "media-image": { title: "图片素材", subtitle: "本地输入", icon: "image" },
   "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
+  group: { title: "节点组", subtitle: "容器", icon: "grid" },
 };
-
-function imageModelLabel(model?: ImageModel) {
-  return IMAGE_MODELS.find((item) => item.id === model)?.label ?? "Agnes Image 2.1 Flash";
-}
 
 function dimensions(ratio: Ratio, quality: Quality): [number, number] {
   const long = LONG_EDGE[quality];
@@ -233,6 +252,8 @@ function statusLabel(status: string): string {
     case "pending":
     case "queued":
       return "排队中";
+    case "submitting":
+      return "提交中";
     case "processing":
       return "生成中";
     case "downloading":
@@ -320,6 +341,7 @@ function Icon({ name }: { name: IconName }) {
 function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const picker = useRef<HTMLInputElement>(null);
   const startFramePicker = useRef<HTMLInputElement>(null);
+  const endFramePicker = useRef<HTMLInputElement>(null);
   const meta = KIND_META[data.kind];
   const isMedia = data.kind.startsWith("media-");
   const [motionOpen, setMotionOpen] = useState(false);
@@ -346,6 +368,31 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
       data.update(id, { endFrameUrl: URL.createObjectURL(file), endFrameName: file.name, error: "" });
     }
   };
+  const removeFrame = (slot: "start" | "end") => {
+    const url = slot === "start" ? data.startFrameUrl : data.endFrameUrl;
+    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
+    data.update(id, slot === "start"
+      ? { startFrameUrl: undefined, startFrameName: undefined }
+      : { endFrameUrl: undefined, endFrameName: undefined });
+  };
+  const openNextFramePicker = () => {
+    if (!data.startFrameUrl) {
+      startFramePicker.current?.click();
+      return;
+    }
+    endFramePicker.current?.click();
+  };
+
+  if (data.kind === "group") {
+    return (
+      <article className="canvas-node group">
+        <Handle type="target" position={Position.Left} className="port left" />
+        <div className="group-node-title"><Icon name="grid" /><span>{data.title}</span></div>
+        <div className="group-node-hint">拖动组可移动全部成员</div>
+        <Handle type="source" position={Position.Right} className="port right" />
+      </article>
+    );
+  }
 
   return (
     <article className={`canvas-node glass ${data.kind}`}>
@@ -424,11 +471,39 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                   </div>
                 </div>
               )}
-              <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()}>
-                {data.startFrameUrl ? <img src={data.startFrameUrl} alt="首帧" /> : <Icon name="upload" />}
-                <span>{data.startFrameUrl ? "首帧" : "上传图片"}</span>
+              {data.startFrameUrl && (
+                <div className="frame-chip-wrap">
+                  <button type="button" className="frame-chip filled" onClick={() => startFramePicker.current?.click()}>
+                    <img src={data.startFrameUrl} alt="首帧" />
+                    <span>首帧</span>
+                  </button>
+                  <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
+                    <Icon name="close" />
+                  </button>
+                </div>
+              )}
+              {data.endFrameUrl && (
+                <div className="frame-chip-wrap">
+                  <button type="button" className="frame-chip filled" onClick={() => endFramePicker.current?.click()}>
+                    <img src={data.endFrameUrl} alt="尾帧" />
+                    <span>尾帧</span>
+                  </button>
+                  <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
+                    <Icon name="close" />
+                  </button>
+                </div>
+              )}
+              <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
+                <Icon name="plus" />
               </button>
-              <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => importFrame("start", event.target.files?.[0])} />
+              <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+                importFrame("start", event.target.files?.[0]);
+                event.target.value = "";
+              }} />
+              <input ref={endFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
+                importFrame("end", event.target.files?.[0]);
+                event.target.value = "";
+              }} />
             </div>
           )}
           <textarea
@@ -532,10 +607,13 @@ const nodeTypes = { work: WorkflowNode };
 
 function WorkflowCanvas() {
   const reactFlow = useReactFlow();
+  const searchParams = useSearchParams();
+  const requestedProjectId = searchParams.get("project");
   const { zoom } = useViewport();
   const [nodes, setNodes, onNodesChange] = useNodesState<WorkNode>([]);
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<MenuState>();
+  const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState>();
   const [config, setConfig] = useState({ openaiConfigured: true, agnesConfigured: true });
   const [agentOpen, setAgentOpen] = useState(false);
   const [orbOpen, setOrbOpen] = useState(false);
@@ -550,13 +628,32 @@ function WorkflowCanvas() {
   const [agentAttachments, setAgentAttachments] = useState<AgentAttachment[]>([]);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [project, setProject] = useState<CanvasProject>();
+  const [saveStatus, setSaveStatus] = useState<SaveStatus>("loading");
+  const [renameOpen, setRenameOpen] = useState(false);
+  const [renameValue, setRenameValue] = useState("");
+  const [renameError, setRenameError] = useState("");
+  const [canUndoDelete, setCanUndoDelete] = useState(false);
   const agentHasConversation = agentMessages.length > 0 || agentBusy;
+  const saveLabel = {
+    loading: "正在加载项目",
+    unsaved: "有未保存修改",
+    saving: "正在保存",
+    saved: "已保存",
+    error: "保存失败，请按 Ctrl+S 重试",
+  }[saveStatus];
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const configRef = useRef(config);
   const interruptedRef = useRef(new Set<string>());
   const messagesRef = useRef(agentMessages);
   const attachmentsRef = useRef(agentAttachments);
+  const projectRef = useRef(project);
+  const projectLoadedRef = useRef(false);
+  const dirtyRef = useRef(false);
+  const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
+  const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
+  const generateRef = useRef<(id: string) => void>(() => undefined);
   const imagePicker = useRef<HTMLInputElement>(null);
   const videoPicker = useRef<HTMLInputElement>(null);
   const agentImagePicker = useRef<HTMLInputElement>(null);
@@ -568,30 +665,229 @@ function WorkflowCanvas() {
   useEffect(() => { configRef.current = config; }, [config]);
   useEffect(() => { messagesRef.current = agentMessages; }, [agentMessages]);
   useEffect(() => { attachmentsRef.current = agentAttachments; }, [agentAttachments]);
+  useEffect(() => { projectRef.current = project; }, [project]);
   useEffect(() => { fetch("/api/config").then(readJson).then(setConfig).catch(() => undefined); }, []);
   useEffect(() => {
     if (agentOpen) setSuggestionOffset(Math.floor(Math.random() * SUGGESTIONS.length));
   }, [agentOpen]);
+  const markUnsaved = useCallback(() => {
+    if (!projectLoadedRef.current) return;
+    dirtyRef.current = true;
+    setSaveStatus("unsaved");
+  }, []);
+  const update = useCallback((id: string, patch: Partial<WorkData>) => {
+    markUnsaved();
+    setNodes((current) => current.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node));
+  }, [markUnsaved, setNodes]);
+  const deleteCanvasNodes = useCallback((ids: string[]) => {
+    const idSet = new Set(ids);
+    nodesRef.current.forEach((node) => {
+      if (node.parentId && idSet.has(node.parentId)) idSet.add(node.id);
+    });
+    const deletedNodes = nodesRef.current.filter((node) => idSet.has(node.id));
+    if (!deletedNodes.length) return;
+    const deletedEdges = edgesRef.current.filter((edge) => idSet.has(edge.source) || idSet.has(edge.target));
+    deletedCanvasStackRef.current = [
+      ...deletedCanvasStackRef.current.slice(-19),
+      { nodes: deletedNodes, edges: deletedEdges },
+    ];
+    setCanUndoDelete(true);
+    markUnsaved();
+    setNodes((current) => current.filter((node) => !idSet.has(node.id)));
+    setEdges((current) => current.filter((edge) => !idSet.has(edge.source) && !idSet.has(edge.target)));
+    setSelectedIds([]);
+  }, [markUnsaved, setEdges, setNodes]);
+  const restoreDeletedCanvas = useCallback(() => {
+    const entry = deletedCanvasStackRef.current.pop();
+    if (!entry) return;
+    markUnsaved();
+    setNodes((current) => {
+      const existingIds = new Set(current.map((node) => node.id));
+      return [...current, ...entry.nodes.filter((node) => !existingIds.has(node.id))];
+    });
+    setEdges((current) => {
+      const existingIds = new Set(current.map((edge) => edge.id));
+      return [...current, ...entry.edges.filter((edge) => !existingIds.has(edge.id))];
+    });
+    setCanUndoDelete(deletedCanvasStackRef.current.length > 0);
+  }, [markUnsaved, setEdges, setNodes]);
+  const remove = useCallback((id: string) => deleteCanvasNodes([id]), [deleteCanvasNodes]);
+  const clipboardNodeIds = useCallback((ids: string[]) => {
+    const expanded = new Set(ids);
+    nodesRef.current.forEach((node) => {
+      if (node.parentId && expanded.has(node.parentId)) expanded.add(node.id);
+    });
+    return expanded;
+  }, []);
+  const copyCanvasSelection = useCallback((ids = selectedIds) => {
+    if (!ids.length) return false;
+    const idSet = clipboardNodeIds(ids);
+    const copiedNodes = nodesRef.current
+      .filter((node) => idSet.has(node.id))
+      .map((node) => {
+        const data = Object.fromEntries(
+          Object.entries(node.data).filter(([key]) => !["update", "remove", "generate"].includes(key)),
+        ) as StoredWorkData;
+        return { ...node, selected: false, data };
+      });
+    if (!copiedNodes.length) return false;
+    canvasClipboardRef.current = {
+      nodes: copiedNodes,
+      edges: edgesRef.current.filter((edge) => idSet.has(edge.source) && idSet.has(edge.target)),
+    };
+    return true;
+  }, [clipboardNodeIds, selectedIds]);
+  const cutCanvasSelection = useCallback((ids = selectedIds) => {
+    if (!copyCanvasSelection(ids)) return;
+    deleteCanvasNodes([...clipboardNodeIds(ids)]);
+    setNodeContextMenu(undefined);
+  }, [clipboardNodeIds, copyCanvasSelection, deleteCanvasNodes, selectedIds]);
+  const pasteCanvasSelection = useCallback((position?: { x: number; y: number }) => {
+    const snapshot = canvasClipboardRef.current;
+    if (!snapshot?.nodes.length) return;
+    const topLevel = snapshot.nodes.filter((node) => !node.parentId);
+    const minX = Math.min(...topLevel.map((node) => node.position.x));
+    const minY = Math.min(...topLevel.map((node) => node.position.y));
+    const target = position ?? reactFlow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
+    const idMap = new Map(snapshot.nodes.map((node) => [node.id, crypto.randomUUID()]));
+    const pastedNodes = snapshot.nodes.map((node) => ({
+      ...node,
+      id: idMap.get(node.id) as string,
+      parentId: node.parentId ? idMap.get(node.parentId) : undefined,
+      position: node.parentId
+        ? node.position
+        : { x: node.position.x - minX + target.x + 24, y: node.position.y - minY + target.y + 24 },
+      selected: true,
+      data: {
+        ...node.data,
+        busy: false,
+        taskId: undefined,
+        result: undefined,
+        error: "",
+        canResume: false,
+        update,
+        remove,
+        generate: (id) => generateRef.current(id),
+      },
+    })) as WorkNode[];
+    const pastedEdges = snapshot.edges.map((edge) => ({
+      ...edge,
+      id: crypto.randomUUID(),
+      source: idMap.get(edge.source) as string,
+      target: idMap.get(edge.target) as string,
+      selected: false,
+    }));
+    markUnsaved();
+    setNodes((current) => [
+      ...current.map((node) => ({ ...node, selected: false })),
+      ...pastedNodes,
+    ]);
+    setEdges((current) => [...current, ...pastedEdges]);
+    setSelectedIds(pastedNodes.map((node) => node.id));
+    setNodeContextMenu(undefined);
+  }, [markUnsaved, reactFlow, remove, setEdges, setNodes, update]);
+  const groupCanvasSelection = useCallback((ids = selectedIds) => {
+    const selected = nodesRef.current.filter((node) => ids.includes(node.id) && !node.parentId && node.data.kind !== "group");
+    if (selected.length < 2) return;
+    const minX = Math.min(...selected.map((node) => node.position.x));
+    const minY = Math.min(...selected.map((node) => node.position.y));
+    const maxX = Math.max(...selected.map((node) => node.position.x + (node.measured?.width ?? 340)));
+    const maxY = Math.max(...selected.map((node) => node.position.y + (node.measured?.height ?? 220)));
+    const groupId = crypto.randomUUID();
+    const groupX = minX - 28;
+    const groupY = minY - 52;
+    const groupNode: WorkNode = {
+      id: groupId,
+      type: "work",
+      position: { x: groupX, y: groupY },
+      style: { width: Math.max(400, maxX - minX + 56), height: Math.max(280, maxY - minY + 80) },
+      data: {
+        kind: "group",
+        title: "节点组",
+        prompt: "",
+        ratio: "1:1",
+        quality: "720p",
+        duration: 0,
+        update,
+        remove,
+        generate: (id) => generateRef.current(id),
+      },
+      selected: true,
+    };
+    const selectedSet = new Set(selected.map((node) => node.id));
+    markUnsaved();
+    setNodes((current) => [
+      groupNode,
+      ...current.map((node) => selectedSet.has(node.id)
+        ? {
+            ...node,
+            parentId: groupId,
+            extent: "parent" as const,
+            expandParent: false,
+            position: { x: node.position.x - groupX, y: node.position.y - groupY },
+            selected: false,
+          }
+        : { ...node, selected: false }),
+    ]);
+    setSelectedIds([groupId]);
+    setNodeContextMenu(undefined);
+  }, [markUnsaved, remove, selectedIds, setNodes, update]);
+  const ungroupCanvasSelection = useCallback((groupId: string) => {
+    const group = nodesRef.current.find((node) => node.id === groupId && node.data.kind === "group");
+    if (!group) return;
+    const memberIds: string[] = [];
+    markUnsaved();
+    setNodes((current) => current.filter((node) => node.id !== groupId).map((node): WorkNode => {
+      if (node.parentId !== groupId) return { ...node, selected: false };
+      memberIds.push(node.id);
+      return {
+        ...node,
+        parentId: undefined,
+        extent: undefined,
+        expandParent: undefined,
+        position: { x: group.position.x + node.position.x, y: group.position.y + node.position.y },
+        selected: true,
+      };
+    }));
+    setEdges((current) => current.filter((edge) => edge.source !== groupId && edge.target !== groupId));
+    setSelectedIds(memberIds);
+    setNodeContextMenu(undefined);
+  }, [markUnsaved, setEdges, setNodes]);
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Delete" && event.key !== "Backspace") return;
       const active = document.activeElement;
       if (active instanceof HTMLInputElement || active instanceof HTMLTextAreaElement || active instanceof HTMLSelectElement) return;
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "z") {
+        if (!deletedCanvasStackRef.current.length) return;
+        event.preventDefault();
+        restoreDeletedCanvas();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "c") {
+        if (!selectedIds.length) return;
+        event.preventDefault();
+        copyCanvasSelection();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "x") {
+        if (!selectedIds.length) return;
+        event.preventDefault();
+        cutCanvasSelection();
+        return;
+      }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "v") {
+        event.preventDefault();
+        pasteCanvasSelection();
+        return;
+      }
+      if (event.key !== "Delete" && event.key !== "Backspace") return;
       if (!selectedIds.length) return;
       event.preventDefault();
-      setNodes((current) => current.filter((node) => !selectedIds.includes(node.id)));
-      setEdges((current) => current.filter((edge) => !selectedIds.includes(edge.source) && !selectedIds.includes(edge.target)));
-      setSelectedIds([]);
+      deleteCanvasNodes(selectedIds);
     };
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [selectedIds, setEdges, setNodes]);
-
-  const update = useCallback((id: string, patch: Partial<WorkData>) => setNodes((current) => current.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node)), [setNodes]);
-  const remove = useCallback((id: string) => {
-    setNodes((current) => current.filter((node) => node.id !== id));
-    setEdges((current) => current.filter((edge) => edge.source !== id && edge.target !== id));
-  }, [setEdges, setNodes]);
+  }, [copyCanvasSelection, cutCanvasSelection, deleteCanvasNodes, pasteCanvasSelection, restoreDeletedCanvas, selectedIds]);
   const setCanvasZoom = useCallback((value: number) => reactFlow.zoomTo(Math.min(2, Math.max(0.25, value)), { duration: 160 }), [reactFlow]);
   const canvasSummary = useCallback(() => {
     const list = nodesRef.current.map((node, index) => {
@@ -612,7 +908,7 @@ function WorkflowCanvas() {
     window.setTimeout(async () => {
       if (interruptedRef.current.has(nodeId)) return;
       try {
-        const response = await fetch(`/api/tasks/${taskId}`);
+        const response = await fetch(`/api/tasks/${taskId}`, { cache: "no-store" });
         const task = await readJson(response);
         if (!response.ok) throw new Error(responseError(task, "TASK_NOT_FOUND"));
         if (interruptedRef.current.has(nodeId)) return;
@@ -621,7 +917,13 @@ function WorkflowCanvas() {
           return;
         }
         if (task.status === "failed") {
-          update(nodeId, { busy: false, result: "生成失败", error: localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"), canResume: false });
+          update(nodeId, {
+            busy: false,
+            result: task.errorCode === "TIMEOUT" ? "已超时" : "生成失败",
+            error: task.errorCode === "TIMEOUT" ? "" : localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"),
+            canResume: false,
+            lastProviderStatus: task.lastProviderStatus ?? null,
+          });
           return;
         }
         // timeout with canResume: stop polling and show resume button
@@ -636,16 +938,16 @@ function WorkflowCanvas() {
             });
             return;
           }
-          // timeout without canResume: keep polling
-          if (attempt < 600) {
-            update(nodeId, { busy: true, result: statusLabel(task.status) });
-            pollTask(nodeId, taskId, attempt + 1);
-          } else {
-            update(nodeId, { busy: false, error: "视频生成超时，请稍后刷新任务或重试。" });
-          }
+          update(nodeId, {
+            busy: false,
+            result: `提交超时：${localizeError(task.errorCode ?? task.error ?? "AGNES_REQUEST_TIMEOUT")}`,
+            error: "",
+            canResume: false,
+            lastProviderStatus: task.lastProviderStatus ?? null,
+          });
           return;
         }
-        if (attempt < 600) {
+        if (attempt < VIDEO_POLL_MAX_ATTEMPTS) {
           update(nodeId, { busy: true, result: statusLabel(task.status ?? "processing") });
           pollTask(nodeId, taskId, attempt + 1);
         } else {
@@ -654,7 +956,7 @@ function WorkflowCanvas() {
       } catch (error) {
         update(nodeId, { busy: false, error: error instanceof Error ? localizeError(error.message) : "查询视频任务失败" });
       }
-    }, 3000);
+    }, VIDEO_POLL_INTERVAL_MS);
   }, [update]);
 
   const generate = useCallback(async (id: string) => {
@@ -734,14 +1036,14 @@ function WorkflowCanvas() {
         }
         const imageSources = upstream.filter((item) => item.data.url && !item.data.kind.includes("video"));
         if (node.data.startFrameUrl) {
-          await appendImageFromUrl(form, "referenceImage", node.data.startFrameUrl, node.data.startFrameName ?? "reference-start.png", "append");
+          await appendImageFromUrl(form, "startFrame", node.data.startFrameUrl, node.data.startFrameName ?? "reference-start.png");
         }
         if (node.data.endFrameUrl) {
-          await appendImageFromUrl(form, "referenceImage", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png", "append");
+          await appendImageFromUrl(form, "endFrame", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png");
         }
         for (const [index, source] of imageSources.entries()) {
           if (source.data.url) {
-            await appendImageFromUrl(form, "referenceImage", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
+            await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
           }
         }
         response = await fetch("/api/videos/generate", { method: "POST", body: form });
@@ -758,10 +1060,45 @@ function WorkflowCanvas() {
       update(id, { busy: false, error: error instanceof Error ? localizeError(error.message) : "生成失败" });
     }
   }, [pollTask, update]);
+  useEffect(() => {
+    generateRef.current = generate;
+  }, [generate]);
 
-  const addNode = useCallback((kind: Kind, position?: { x: number; y: number }, file?: File, sourceId?: string) => {
+  const uploadCanvasFile = useCallback(async (file: File) => {
+    const form = new FormData();
+    form.set("file", file);
+    const response = await fetch("/api/uploads", { method: "POST", body: form });
+    const body = await readJson(response);
+    if (!response.ok || !body.url) throw new Error(String(body.error ?? "UPLOAD_FAILED"));
+    return String(body.url);
+  }, []);
+  const fanOutGroupConnection = useCallback((sourceId: string, targetId: string) => {
+    const source = nodesRef.current.find((node) => node.id === sourceId);
+    const sourceIds = source?.data.kind === "group"
+      ? nodesRef.current.filter((node) => node.parentId === sourceId).map((node) => node.id)
+      : [sourceId];
+    if (!sourceIds.length) return;
+    markUnsaved();
+    setEdges((current) => sourceIds.reduce(
+      (next, memberId) => addEdge({ id: `${memberId}-${targetId}-${crypto.randomUUID()}`, source: memberId, target: targetId, animated: true }, next),
+      current,
+    ));
+  }, [markUnsaved, setEdges]);
+
+  const addNode = useCallback(async (kind: Kind, position?: { x: number; y: number }, file?: File, sourceId?: string) => {
     const point = position ?? reactFlow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
     const id = crypto.randomUUID();
+    let persistentUrl: string | undefined;
+    if (file) {
+      try {
+        persistentUrl = await uploadCanvasFile(file);
+      } catch (error) {
+        setSaveStatus("error");
+        window.alert(error instanceof Error ? error.message : "上传素材失败");
+        return;
+      }
+    }
+    markUnsaved();
     setNodes((current) => [...current, {
       id,
       type: "work",
@@ -776,18 +1113,21 @@ function WorkflowCanvas() {
         motionPreset: kind === "video" ? "auto" : undefined,
         duration: 5,
         negativePrompt: "",
-        url: file ? URL.createObjectURL(file) : undefined,
+        url: persistentUrl,
         update,
         remove,
         generate,
       },
     }]);
-    if (sourceId) setEdges((current) => addEdge({ id: `${sourceId}-${id}`, source: sourceId, target: id, animated: true }, current));
+    if (sourceId) fanOutGroupConnection(sourceId, id);
     setMenu(undefined);
-  }, [generate, reactFlow, remove, setEdges, setNodes, update]);
+  }, [fanOutGroupConnection, generate, markUnsaved, reactFlow, remove, setNodes, update, uploadCanvasFile]);
 
   const openMenu = useCallback((x: number, y: number, sourceId?: string) => setMenu({ screen: { x, y }, flow: reactFlow.screenToFlowPosition({ x, y }), sourceId }), [reactFlow]);
-  const onConnect = useCallback((connection: Connection) => setEdges((current) => addEdge({ ...connection, animated: true }, current)), [setEdges]);
+  const onConnect = useCallback((connection: Connection) => {
+    if (!connection.source || !connection.target) return;
+    fanOutGroupConnection(connection.source, connection.target);
+  }, [fanOutGroupConnection]);
   const onConnectEnd = useCallback<OnConnectEnd>((event, state) => {
     if (state.isValid || !state.fromNode) return;
     const pointer = "changedTouches" in event ? event.changedTouches[0] : event;
@@ -817,6 +1157,255 @@ function WorkflowCanvas() {
       maxZoom: 1.12,
     });
   }, [reactFlow]);
+  const openNodeContextMenu = useCallback((event: React.MouseEvent, node: WorkNode) => {
+    event.preventDefault();
+    const selection = selectedIds.includes(node.id) ? selectedIds : [node.id];
+    if (!selectedIds.includes(node.id)) {
+      setNodes((current) => current.map((item) => ({ ...item, selected: item.id === node.id })));
+      setSelectedIds([node.id]);
+    }
+    setMenu(undefined);
+    setNodeContextMenu({
+      nodeId: node.id,
+      screen: { x: event.clientX, y: event.clientY },
+      flow: reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }),
+    });
+    if (selection.length !== selectedIds.length) setSelectedIds(selection);
+  }, [reactFlow, selectedIds, setNodes]);
+
+  const canvasProjectData = useCallback(() => {
+    const storedNodes = nodesRef.current.map((node) => {
+      const data = Object.fromEntries(
+        Object.entries(node.data).filter(([key]) => !["update", "remove", "generate"].includes(key)),
+      ) as StoredWorkData;
+      return {
+        ...node,
+        selected: false,
+        data: {
+          ...data,
+          busy: false,
+          settingsOpen: false,
+          negativePromptOpen: false,
+        },
+      };
+    });
+    return {
+      nodes: storedNodes,
+      edges: edgesRef.current,
+      viewport: reactFlow.getViewport(),
+    };
+  }, [reactFlow]);
+
+  const saveProject = useCallback(async (name?: string) => {
+    const current = projectRef.current;
+    if (!current) return false;
+    setSaveStatus("saving");
+    try {
+      const response = await fetch(`/api/projects/${current.id}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          canvasData: canvasProjectData(),
+          ...(name ? { name } : {}),
+        }),
+      });
+      const body = await readJson(response) as CanvasProject & { error?: string };
+      if (!response.ok) throw new Error(body.error ?? "PROJECT_SAVE_FAILED");
+      setProject(body);
+      projectRef.current = body;
+      dirtyRef.current = false;
+      setSaveStatus("saved");
+      return true;
+    } catch {
+      setSaveStatus("error");
+      return false;
+    }
+  }, [canvasProjectData]);
+
+  const renameProject = useCallback(async () => {
+    const name = renameValue.trim();
+    if (!name || name.toLowerCase() === "empty space") {
+      setRenameError("请输入新的项目名称");
+      return;
+    }
+    setRenameError("");
+    if (await saveProject(name)) setRenameOpen(false);
+  }, [renameValue, saveProject]);
+
+  const reconcileLoadedTaskNodes = useCallback(async (loadedNodes: WorkNode[]) => {
+    let changed = false;
+    const polling: Array<{ nodeId: string; taskId: string }> = [];
+    const nodes = await Promise.all(loadedNodes.map(async (node) => {
+      if (node.data.kind !== "video" || !node.data.taskId) return node;
+      try {
+        const response = await fetch(`/api/tasks/${node.data.taskId}`, { cache: "no-store" });
+        const task = await readJson(response);
+        if (!response.ok) return node;
+
+        if ((task.status === "completed" || task.status === "succeeded") && task.outputUrl) {
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              busy: false,
+              url: task.outputUrl,
+              result: undefined,
+              error: "",
+              canResume: false,
+              lastProviderStatus: task.lastProviderStatus ?? "completed",
+            },
+          };
+        }
+
+        if (task.status === "failed" || task.status === "cancelled") {
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              busy: false,
+              result: task.errorCode === "TIMEOUT" ? "已超时" : "生成失败",
+              error: task.errorCode === "TIMEOUT" ? "" : localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"),
+              canResume: false,
+              lastProviderStatus: task.lastProviderStatus ?? task.status,
+            },
+          };
+        }
+
+        if (task.status === "timeout") {
+          changed = true;
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              busy: false,
+              result: task.canResume
+                ? "查询超时"
+                : `提交超时：${localizeError(task.errorCode ?? task.error ?? "AGNES_REQUEST_TIMEOUT")}`,
+              error: "",
+              canResume: Boolean(task.canResume),
+              lastProviderStatus: task.lastProviderStatus ?? null,
+            },
+          };
+        }
+
+        if (["pending", "submitting", "queued", "processing", "running", "downloading"].includes(task.status)) {
+          changed = true;
+          polling.push({ nodeId: node.id, taskId: node.data.taskId });
+          return {
+            ...node,
+            data: {
+              ...node.data,
+              busy: true,
+              result: statusLabel(task.status),
+              error: "",
+              canResume: false,
+              lastProviderStatus: task.lastProviderStatus ?? task.status,
+            },
+          };
+        }
+      } catch {
+        return node;
+      }
+      return node;
+    }));
+    return { nodes, polling, changed };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+
+    const loadProject = async () => {
+      projectLoadedRef.current = false;
+      setSaveStatus("loading");
+      let targetId = requestedProjectId || window.localStorage.getItem("genora-current-project");
+      let loaded: CanvasProject | undefined;
+
+      if (targetId) {
+        const response = await fetch(`/api/projects/${targetId}`);
+        if (response.ok) loaded = await readJson(response) as CanvasProject;
+      }
+      if (!loaded) {
+        const response = await fetch("/api/projects");
+        const projects = response.ok ? await readJson(response) as CanvasProject[] : [];
+        loaded = projects[0];
+      }
+      if (!loaded) {
+        const response = await fetch("/api/projects", { method: "POST" });
+        if (!response.ok) throw new Error("PROJECT_CREATE_FAILED");
+        loaded = await readJson(response) as CanvasProject;
+      }
+      if (cancelled) return;
+
+      const hydratedNodes = loaded.canvasData.nodes.map((node) => ({
+        ...node,
+        data: {
+          ...node.data,
+          busy: false,
+          update,
+          remove,
+          generate,
+        },
+      })) as WorkNode[];
+      const reconciled = await reconcileLoadedTaskNodes(hydratedNodes);
+      if (cancelled) return;
+      setNodes(reconciled.nodes);
+      setEdges(loaded.canvasData.edges);
+      setProject(loaded);
+      projectRef.current = loaded;
+      setRenameValue(loaded.name === "empty space" ? "" : loaded.name);
+      setRenameOpen(loaded.requiresRename);
+      window.localStorage.setItem("genora-current-project", loaded.id);
+      window.history.replaceState(null, "", `/?project=${encodeURIComponent(loaded.id)}`);
+      window.requestAnimationFrame(() => {
+        void reactFlow.setViewport(loaded.canvasData.viewport, { duration: 0 });
+      });
+      dirtyRef.current = false;
+      projectLoadedRef.current = true;
+      if (reconciled.changed) {
+        dirtyRef.current = true;
+        setSaveStatus("unsaved");
+        window.setTimeout(() => void saveProject(), 0);
+      } else {
+        setSaveStatus("saved");
+      }
+      reconciled.polling.forEach(({ nodeId, taskId }) => pollTask(nodeId, taskId));
+    };
+
+    loadProject().catch(() => setSaveStatus("error"));
+    return () => { cancelled = true; };
+  }, [generate, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
+
+  useEffect(() => {
+    const interval = window.setInterval(() => {
+      if (dirtyRef.current && projectLoadedRef.current) void saveProject();
+    }, 10 * 60 * 1000);
+    return () => window.clearInterval(interval);
+  }, [saveProject]);
+
+  useEffect(() => {
+    const onSaveShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.key.toLowerCase() !== "s") return;
+      event.preventDefault();
+      if (projectRef.current?.requiresRename) {
+        setRenameOpen(true);
+        return;
+      }
+      void saveProject();
+    };
+    window.addEventListener("keydown", onSaveShortcut);
+    return () => window.removeEventListener("keydown", onSaveShortcut);
+  }, [saveProject]);
+
+  useEffect(() => {
+    const onBeforeUnload = (event: BeforeUnloadEvent) => {
+      if (!dirtyRef.current) return;
+      event.preventDefault();
+    };
+    window.addEventListener("beforeunload", onBeforeUnload);
+    return () => window.removeEventListener("beforeunload", onBeforeUnload);
+  }, []);
 
   const sendAgent = useCallback(async () => {
     const content = agentInput.trim();
@@ -898,9 +1487,31 @@ function WorkflowCanvas() {
     <main className={`canvas-shell ${agentOpen ? "agent-open" : ""} theme-${themeTone}`} style={{ "--accent": accentColor, "--font-scale": `${fontScale / 100}` } as React.CSSProperties}>
       <header className={`topbar ${agentOpen ? "agent-open" : ""}`}>
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
-        <div className="top-title"><i className="status-dot" /><span>Genora Space</span><small>已自动保存</small></div>
-        <div className="top-actions"><button className="glass-pill"><Icon name="history" />作品库</button></div>
+        <div className="top-title"><i className={`status-dot ${saveStatus}`} /><span>{project?.name ?? "empty space"}</span><small>{saveLabel}</small></div>
+        <div className="top-actions"><Link className="glass-pill" href="/projects"><Icon name="history" />作品库</Link></div>
       </header>
+
+      {renameOpen && (
+        <div className="project-dialog-backdrop">
+          <section className="project-dialog glass" role="dialog" aria-modal="true" aria-labelledby="project-name-title">
+            <span className="project-dialog-kicker">新项目 · empty space</span>
+            <h2 id="project-name-title">为画布重新命名</h2>
+            <p>项目名称用于作品库识别，保存后仍可再次修改。</p>
+            <input
+              autoFocus
+              value={renameValue}
+              maxLength={80}
+              placeholder="例如：夏日品牌短片"
+              onChange={(event) => { setRenameValue(event.target.value); setRenameError(""); }}
+              onKeyDown={(event) => { if (event.key === "Enter") void renameProject(); }}
+            />
+            {renameError && <small className="project-dialog-error">{renameError}</small>}
+            <button onClick={() => void renameProject()} disabled={saveStatus === "saving"}>
+              {saveStatus === "saving" ? "正在保存…" : "保存并开始创作"}
+            </button>
+          </section>
+        </div>
+      )}
 
       <input ref={imagePicker} hidden type="file" accept="image/*" onChange={(event) => event.target.files?.[0] && addNode("media-image", undefined, event.target.files[0])} />
       <input ref={videoPicker} hidden type="file" accept="video/*" onChange={(event) => event.target.files?.[0] && addNode("media-video", undefined, event.target.files[0])} />
@@ -913,6 +1524,7 @@ function WorkflowCanvas() {
         nodeTypes={nodeTypes}
         onNodesChange={(changes) => {
           onNodesChange(changes);
+          if (changes.some((change) => change.type !== "select")) markUnsaved();
           setSelectedIds((current) => {
             const next = new Set(current);
             changes.forEach((change) => {
@@ -921,15 +1533,23 @@ function WorkflowCanvas() {
             return [...next];
           });
         }}
-        onEdgesChange={onEdgesChange}
+        onEdgesChange={(changes) => {
+          onEdgesChange(changes);
+          if (changes.some((change) => change.type !== "select")) markUnsaved();
+        }}
         onConnect={onConnect}
         onConnectEnd={onConnectEnd}
         onDrop={onDrop}
         onWheel={onWheel}
         onNodeClick={focusNode}
+        onNodeContextMenu={openNodeContextMenu}
         onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
         onDoubleClick={(event) => { if (!(event.target as HTMLElement).closest(".react-flow__node")) openMenu(event.clientX, event.clientY); }}
-        onPaneClick={() => setMenu(undefined)}
+        onPaneClick={() => { setMenu(undefined); setNodeContextMenu(undefined); }}
+        selectionOnDrag
+        selectionMode={SelectionMode.Partial}
+        panOnDrag={[1]}
+        panActivationKeyCode={null}
         zoomOnScroll={false}
         zoomOnDoubleClick={false}
         fitView
@@ -962,8 +1582,27 @@ function WorkflowCanvas() {
           <button onClick={() => videoPicker.current?.click()}><Icon name="upload" /><span><b>上传视频</b><em>添加参考素材</em></span></button>
         </div>
       )}
+      {nodeContextMenu && (
+        <div className="node-context-menu glass" style={{ left: nodeContextMenu.screen.x, top: nodeContextMenu.screen.y }}>
+          <header><b>节点操作</b><button onClick={() => setNodeContextMenu(undefined)}><Icon name="close" /></button></header>
+          <button onClick={() => { copyCanvasSelection(); setNodeContextMenu(undefined); }}><span><b>复制</b><em>Ctrl+C</em></span></button>
+          <button onClick={() => cutCanvasSelection()}><span><b>剪切</b><em>Ctrl+X</em></span></button>
+          <button onClick={() => pasteCanvasSelection(nodeContextMenu.flow)}><span><b>粘贴</b><em>Ctrl+V</em></span></button>
+          <hr />
+          <button disabled={selectedIds.length < 2} onClick={() => groupCanvasSelection()}><span><b>打组</b><em>将选中节点放入容器</em></span></button>
+          <button
+            disabled={nodesRef.current.find((node) => node.id === nodeContextMenu.nodeId)?.data.kind !== "group"}
+            onClick={() => ungroupCanvasSelection(nodeContextMenu.nodeId)}
+          ><span><b>取消打组</b><em>保留成员位置与连线</em></span></button>
+          <hr />
+          <button className="danger" onClick={() => { deleteCanvasNodes(selectedIds.includes(nodeContextMenu.nodeId) ? selectedIds : [nodeContextMenu.nodeId]); setNodeContextMenu(undefined); }}>
+            <span><b>删除</b><em>可使用 Ctrl+Z 撤回</em></span>
+          </button>
+        </div>
+      )}
 
       <div className="canvas-control-bar glass">
+        <button aria-label="撤回删除节点" title="撤回删除 (Ctrl+Z)" disabled={!canUndoDelete} onClick={restoreDeletedCanvas}><Icon name="history" /></button>
         <button title="小地图" className={miniMapOpen ? "selected" : ""} onClick={() => setMiniMapOpen((current) => !current)}><Icon name="map" /></button>
         <button title="网格提示" className={gridVisible ? "selected" : ""} onClick={() => setGridVisible((current) => !current)}><Icon name="grid" /></button>
         <button title="适配画布" onClick={() => reactFlow.fitView({ duration: 220, maxZoom: 1 })}><Icon name="fit" /></button>
@@ -1007,5 +1646,5 @@ function WorkflowCanvas() {
 }
 
 export default function Home() {
-  return <ReactFlowProvider><WorkflowCanvas /></ReactFlowProvider>;
+  return <Suspense fallback={<main className="canvas-shell" />}><ReactFlowProvider><WorkflowCanvas /></ReactFlowProvider></Suspense>;
 }

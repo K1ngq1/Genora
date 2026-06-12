@@ -1,4 +1,4 @@
-import type { Task } from "@/generated/prisma";
+import type { Task } from "@prisma/client";
 
 function safeJsonParse(text: string): Record<string, unknown> {
   if (!text) return {};

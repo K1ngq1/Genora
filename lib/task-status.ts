@@ -1,7 +1,24 @@
-export type TaskStatus = "pending" | "queued" | "processing" | "downloading" | "completed" | "failed" | "cancelled" | "timeout";
+export const TASK_STATUSES = [
+  "pending",
+  "submitting",
+  "queued",
+  "processing",
+  "downloading",
+  "completed",
+  "failed",
+  "cancelled",
+  "timeout",
+] as const;
 
-export const ACTIVE_TASK_STATUSES: TaskStatus[] = ["pending", "queued", "processing", "downloading"];
+export type TaskStatus = (typeof TASK_STATUSES)[number];
 
-export function isActiveTaskStatus(status: string) {
-  return ACTIVE_TASK_STATUSES.includes(status as TaskStatus);
+export const ACTIVE_TASK_STATUSES = ["pending", "submitting", "queued", "processing", "downloading"] as const satisfies readonly TaskStatus[];
+export const TERMINAL_TASK_STATUSES = ["completed", "failed", "cancelled", "timeout"] as const satisfies readonly TaskStatus[];
+
+export function isActiveTaskStatus(status: string): status is (typeof ACTIVE_TASK_STATUSES)[number] {
+  return (ACTIVE_TASK_STATUSES as readonly string[]).includes(status);
+}
+
+export function isTerminalTaskStatus(status: string): status is (typeof TERMINAL_TASK_STATUSES)[number] {
+  return (TERMINAL_TASK_STATUSES as readonly string[]).includes(status);
 }

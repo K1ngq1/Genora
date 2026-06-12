@@ -1,5 +1,3 @@
-@import "tailwindcss";
-
 :root{color-scheme:dark}
 *{box-sizing:border-box}
 html,body{margin:0;overflow:hidden;background:#000;color:#fff;font-family:Arial,Helvetica,sans-serif;font-size:calc(16px * var(--font-scale,1))}
@@ -16,8 +14,12 @@ button{cursor:pointer}
 .top-title small{color:#ffffff62}
 .status-dot{width:6px;height:6px;border-radius:50%;background:var(--accent,#85ffca);box-shadow:0 0 9px var(--accent,#85ffca)}
 .top-actions{display:flex;gap:7px;margin-left:auto}
-.glass-pill{border:1px solid #ffffff22;background:#ffffff10;color:#ffffffbf;border-radius:99px;padding:9px 14px;font-size:12px}
+.glass-pill{border:1px solid #ffffff22;background:#ffffff10;color:#ffffffbf;border-radius:99px;padding:9px 14px;font-size:12px;text-decoration:none}
 .glass-pill svg{width:15px}
+.status-dot.unsaved{background:#ffd36f;box-shadow:0 0 9px #ffd36f}.status-dot.saving,.status-dot.loading{background:#8fc7ff;box-shadow:0 0 9px #8fc7ff}.status-dot.error{background:#ff7b88;box-shadow:0 0 9px #ff7b88}
+.project-dialog-backdrop{position:fixed;z-index:100;inset:0;display:grid;place-items:center;padding:24px;background:#000b;backdrop-filter:blur(12px)}
+.project-dialog{width:min(430px,100%);padding:28px;border-radius:26px;background:linear-gradient(145deg,#24212fef,#111116f5)}
+.project-dialog-kicker{display:block;margin-bottom:10px;color:#a996ff;font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase}.project-dialog h2{margin:0 0 8px;font-size:24px}.project-dialog p{margin:0 0 20px;color:#ffffff7b;font-size:13px;line-height:1.6}.project-dialog input{width:100%;height:48px;border:1px solid #ffffff25;border-radius:14px;padding:0 14px;outline:0;background:#08080c99;color:#fff;font:inherit}.project-dialog input:focus{border-color:#aa99ff;box-shadow:0 0 0 3px #aa99ff1f}.project-dialog button{width:100%;height:46px;margin-top:14px;border:0;border-radius:14px;background:#f4f1ff;color:#17131f;font-weight:800}.project-dialog button:disabled{opacity:.6}.project-dialog-error{display:block;margin-top:8px;color:#ff939e}
 .sidebar{width:62px;padding:7px;border-radius:24px;display:flex;flex-direction:column;align-items:center;gap:8px}
 .sidebar button{width:46px;height:46px;border:0;border-radius:16px;background:#ffffff0d;color:#ffffffad;display:grid;place-items:center;position:relative;transition:.2s}
 .sidebar button:hover{background:#ffffff20;color:white}

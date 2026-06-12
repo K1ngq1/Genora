@@ -23,5 +23,7 @@ export function mimeFromName(name: string) {
   if (ext === ".webp") return "image/webp";
   if (ext === ".jpg" || ext === ".jpeg") return "image/jpeg";
   if (ext === ".mp4") return "video/mp4";
+  if (ext === ".webm") return "video/webm";
+  if (ext === ".mov") return "video/quicktime";
   return "application/octet-stream";
 }

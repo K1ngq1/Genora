@@ -3,6 +3,7 @@ import { AppError, errorResponse } from "@/lib/error-codes";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { scheduleVideoTask } from "@/lib/video-task-runner";
+import { ensureBackgroundVideoPolling } from "@/lib/video-task-sync";
 
 const MAX_UPLOAD = 10 * 1024 * 1024;
 const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -87,7 +88,7 @@ export async function POST(request: Request) {
   const task = await db.task.create({
     data: {
       type: inputPath ? "image-to-video" : "text-to-video",
-      status: "processing",
+      status: "pending",
       prompt,
       params: JSON.stringify({ width, height, numFrames, frameRate, model: "agnes-video-v2.0", negativePrompt: negativePrompt || undefined }),
       inputPath,
@@ -95,6 +96,7 @@ export async function POST(request: Request) {
   });
 
   scheduleVideoTask(task.id);
+  ensureBackgroundVideoPolling();
 
   return Response.json(publicTask(task));
 }

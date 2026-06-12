@@ -1,4 +1,4 @@
-import type { Task } from "@/generated/prisma";
+import type { Task } from "@prisma/client";
 import { syncAgnesVideo } from "@/lib/agnes";
 import { db } from "@/lib/db";
 import { errorMessage } from "@/lib/tasks";
@@ -31,8 +31,8 @@ function videoLog(section: string, detail: Record<string, unknown>) {
 async function runVideoTaskSync(task: Task): Promise<VideoTaskSync> {
   videoLog("sync-check", { localTaskId: task.id, remoteTaskId: String(task.remoteTaskId ?? "null"), status: task.status, canResume: String(task.canResume), type: task.type });
   const active = isActiveTaskStatus(task.status);
-  if (!active && task.status !== "timeout" || !task.remoteTaskId || task.type === "image") {
-    videoLog("sync-skip", { localTaskId: task.id, status: task.status, reason: !active && task.status !== "timeout" ? "inactive" : !task.remoteTaskId ? "no-remote-id" : "image-type" });
+  if (!active || !task.remoteTaskId || task.type === "image") {
+    videoLog("sync-skip", { localTaskId: task.id, status: task.status, reason: !active ? "inactive" : !task.remoteTaskId ? "no-remote-id" : "image-type" });
     return { task };
   }
 
@@ -43,15 +43,20 @@ async function runVideoTaskSync(task: Task): Promise<VideoTaskSync> {
   const elapsedSeconds = (Date.now() - referenceTime) / 1000;
   videoLog("sync-elapsed", { localTaskId: task.id, elapsedSec: String(elapsedSeconds.toFixed(0)), maxSec: String(MAX_PROCESSING_SECONDS), referenceTime: String(new Date(referenceTime).toISOString()), hasResumeAt: String(Boolean(resumedAt)) });
 
-  if (elapsedSeconds > MAX_PROCESSING_SECONDS && !task.canResume) {
-      videoLog("sync-timeout", { localTaskId: task.id, elapsedSec: String(elapsedSeconds.toFixed(0)) });
+  if (elapsedSeconds > MAX_PROCESSING_SECONDS) {
+    videoLog("sync-timeout", { localTaskId: task.id, elapsedSec: String(elapsedSeconds.toFixed(0)) });
     try {
       return {
         task: await db.task.update({
           where: { id: task.id },
-          data: { status: "timeout", error: "AGNES_VIDEO_TIMEOUT", canResume: true },
+          data: {
+            status: "failed",
+            error: "Video task timeout",
+            canResume: false,
+            params: JSON.stringify({ ...params, errorCode: "TIMEOUT" }),
+          },
         }),
-        syncError: "AGNES_VIDEO_TIMEOUT",
+        syncError: "TIMEOUT",
       };
     } catch (updateError) {
       return { task, syncError: errorMessage(updateError) };
@@ -105,16 +110,39 @@ export async function syncVideoTask(task: Task): Promise<VideoTaskSync> {
 }
 
 export async function syncProcessingVideoTasks(limit = 4) {
+  const results: VideoTaskSync[] = [];
+  const legacyTimeouts = await db.task.findMany({
+    where: {
+      status: "timeout",
+      type: { not: "image" },
+    },
+    orderBy: { createdAt: "desc" },
+    take: limit,
+  });
+  for (const task of legacyTimeouts) {
+    const params = safeJsonParse(task.params);
+    const finalized = await db.task.update({
+      where: { id: task.id },
+      data: {
+        status: "failed",
+        error: "Video task timeout",
+        canResume: false,
+        params: JSON.stringify({ ...params, errorCode: "TIMEOUT" }),
+      },
+    });
+    videoLog("legacy-timeout-finalized", { localTaskId: task.id, lastRemoteStatus: String(params.lastRemoteStatus ?? "unknown") });
+    results.push({ task: finalized, syncError: "TIMEOUT" });
+  }
+
   const tasks = await db.task.findMany({
     where: {
-      status: { in: ["pending", "queued", "processing", "downloading", "timeout"] },
+      status: { in: ["pending", "submitting", "queued", "processing", "downloading"] },
       remoteTaskId: { not: null },
       type: { not: "image" },
     },
     orderBy: { createdAt: "desc" },
     take: limit,
   });
-  const results: VideoTaskSync[] = [];
   for (const task of tasks) {
     results.push(await syncVideoTask(task));
   }
@@ -123,21 +151,23 @@ export async function syncProcessingVideoTasks(limit = 4) {
 
 // ====== SERVER-SIDE BACKGROUND POLLING ======
 // Runs every 10s to keep video tasks synced even when no frontend is active
-function startBackgroundPolling() {
+export function ensureBackgroundVideoPolling() {
   if (typeof window !== "undefined") return;
-  var key = "__genora_video_sync_interval";
-  if ((globalThis as any)[key]) return;
+  const pollingGlobal = globalThis as typeof globalThis & {
+    __genora_video_sync_interval?: ReturnType<typeof setInterval>;
+    __video_sync_tick?: number;
+  };
+  if (pollingGlobal.__genora_video_sync_interval) return;
   
   console.log("[video-sync] starting background polling (interval: 10s, max tasks: 8)");
   
-  var interval = setInterval(() => {
+  const interval = setInterval(() => {
     syncProcessingVideoTasks(8).then((results) => {
       if (results.length > 0) {
-        var statuses = results.map((r) => r.task.status + "/" + ((r.task as any).error || "ok")).join(",");
+        const statuses = results.map((result) => `${result.task.status}/${result.task.error || "ok"}`).join(",");
         if (!statuses.includes("completed") && !statuses.includes("failed")) {
-          // Only log periodically to reduce noise
-          var tick = ((globalThis as any).__video_sync_tick || 0) + 1;
-          (globalThis as any).__video_sync_tick = tick;
+          const tick = (pollingGlobal.__video_sync_tick || 0) + 1;
+          pollingGlobal.__video_sync_tick = tick;
           if (tick % 60 === 0) {
             console.log("[video-sync] background poll: " + results.length + " tasks (" + statuses + ")");
           }
@@ -150,11 +180,9 @@ function startBackgroundPolling() {
     });
   }, 10000);
   
-  (globalThis as any)[key] = interval;
+  pollingGlobal.__genora_video_sync_interval = interval;
   
   if (typeof process !== "undefined") {
     process.on("beforeExit", () => clearInterval(interval));
   }
 }
-
-startBackgroundPolling();

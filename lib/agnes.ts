@@ -1,4 +1,5 @@
 import { get } from "node:https";
+import { describeAgnesVideoState } from "@/lib/agnes-status";
 import { AppError } from "@/lib/error-codes";
 import { saveBuffer } from "@/lib/storage";
 
@@ -8,6 +9,7 @@ const FAILURE = new Set(["failed", "error", "cancelled", "canceled"]);
 const RETRYABLE_STATUS = new Set([429, 500, 520, 522, 524, 503]);
 const MAX_RETRIES = 3;
 const REQUEST_TIMEOUT_MS = Number(process.env.AGNES_REQUEST_TIMEOUT_MS ?? 180_000);
+const VIDEO_CREATE_TIMEOUT_MS = Number(process.env.AGNES_VIDEO_CREATE_TIMEOUT_MS ?? 300_000);
 
 type AgnesService = "image" | "text" | "video";
 
@@ -183,7 +185,12 @@ function findValue(value: unknown, keys: Set<string>): unknown {
 
 export async function createAgnesVideo(payload: Record<string, unknown>) {
   videoLog("create-video", { model: String(payload.model ?? ""), width: String(payload.width ?? ""), height: String(payload.height ?? ""), frames: String(payload.num_frames ?? "") });
-  const result = await request(`${API_BASE}/videos`, "video", { method: "POST", body: JSON.stringify(payload) });
+  const timeoutMs = Number.isFinite(VIDEO_CREATE_TIMEOUT_MS) && VIDEO_CREATE_TIMEOUT_MS > 0 ? VIDEO_CREATE_TIMEOUT_MS : 300_000;
+  const result = await request(`${API_BASE}/videos`, "video", {
+    method: "POST",
+    body: JSON.stringify(payload),
+    signal: AbortSignal.timeout(timeoutMs),
+  });
   const id = findValue(result, new Set(["task_id", "id"]));
   videoLog("create-video-result", { taskId: String(id ?? "MISSING"), responsePreview: JSON.stringify(result).slice(0, 300) });
   if (!id) throw new AppError("AGNES_MISSING_TASK_ID", 502, JSON.stringify(result).slice(0, 300));
@@ -193,8 +200,16 @@ export async function createAgnesVideo(payload: Record<string, unknown>) {
 export async function syncAgnesVideo(remoteTaskId: string, localTaskId: string) {
   videoLog("sync-video-start", { remoteTaskId, localTaskId });
   const result = await request(`${API_BASE}/videos/${remoteTaskId}`, "video");
-  const status = String(findValue(result, new Set(["status", "state"])) ?? "").toLowerCase();
-  videoLog("sync-video-status", { remoteTaskId, remoteStatus: status, responsePreview: JSON.stringify(result).slice(0, 300) });
+  const state = describeAgnesVideoState(result);
+  const status = state.remoteStatus;
+  videoLog("sync-video-status", {
+    remoteTaskId,
+    remoteStatus: status,
+    progress: String(state.progress ?? ""),
+    queuedSeconds: String(state.queuedSeconds ?? ""),
+    queueWarning: String(state.queueWarning),
+    responsePreview: JSON.stringify(result).slice(0, 300),
+  });
   if (FAILURE.has(status)) {
     return { status: "failed", error: "AGNES_VIDEO_FAILED", lastRemoteStatus: status };
   }

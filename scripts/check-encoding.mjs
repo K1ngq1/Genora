@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
-const ignoredDirs = new Set([".git", ".next", ".next-build", "node_modules", "storage", "vendor", ".venv-ideogram"]);
+const ignoredDirs = new Set([".git", ".next", ".next-build", ".netlify", "node_modules", "storage", "vendor", ".venv-ideogram"]);
 const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".css", ".md", ".json", ".prisma"]);
 const suspiciousPatterns = [
   /\uFFFD/,
@@ -33,6 +33,7 @@ for (const file of files) {
   if (path.relative(root, file) === path.join("scripts", "check-encoding.mjs")) continue;
   const lines = text.split(/\r?\n/);
   lines.forEach((line, index) => {
+    if (/疑似乱码的内容.*例如/.test(line)) return;
     if (suspiciousPatterns.some((pattern) => pattern.test(line))) {
       hits.push(`${path.relative(root, file)}:${index + 1}: ${line.trim().slice(0, 160)}`);
     }

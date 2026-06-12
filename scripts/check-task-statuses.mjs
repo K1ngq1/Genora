@@ -9,6 +9,7 @@ import {
 
 assert.deepEqual(TASK_STATUSES, [
   "pending",
+  "submitting",
   "queued",
   "processing",
   "downloading",
