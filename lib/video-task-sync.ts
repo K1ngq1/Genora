@@ -3,6 +3,7 @@ import { syncAgnesVideo } from "@/lib/agnes";
 import { db } from "@/lib/db";
 import { errorMessage } from "@/lib/tasks";
 import { isActiveTaskStatus } from "@/lib/task-status";
+import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
 
 function safeJsonParse(text: string): Record<string, unknown> {
   if (!text) return {};
@@ -34,6 +35,13 @@ async function runVideoTaskSync(task: Task): Promise<VideoTaskSync> {
   if (!active || !task.remoteTaskId || task.type === "image") {
     videoLog("sync-skip", { localTaskId: task.id, status: task.status, reason: !active ? "inactive" : !task.remoteTaskId ? "no-remote-id" : "image-type" });
     return { task };
+  }
+  if (isApimartTask(task)) {
+    try {
+      return { task: await syncApimartTask(task) };
+    } catch (error) {
+      return { task, syncError: errorMessage(error) };
+    }
   }
 
   // Use resumedAt from params as reference time if available, otherwise use createdAt

@@ -25,11 +25,19 @@ import {
   type OnConnectEnd,
 } from "@xyflow/react";
 import { VIDEO_POLL_INTERVAL_MS, VIDEO_POLL_MAX_ATTEMPTS } from "@/lib/video-polling";
+import {
+  estimateCredits,
+  getModelDefinition,
+  modelCapabilityLabel,
+  modelsForKind,
+  normalizeModelOptions,
+  type CanvasRatio,
+  type CanvasResolution,
+} from "@/lib/model-catalog";
 
 type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
-type Ratio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
-type Quality = "720p" | "1k" | "2k" | "4k";
-type ImageModel = "agnes-image-2.1-flash" | "ideogram-4-nf4" | "ideogram-4-fp8";
+type Ratio = CanvasRatio;
+type Quality = CanvasResolution;
 type MotionPreset = "auto" | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "orbit-left" | "orbit-right" | "low-angle" | "top-down";
 type ThemeTone = "dark" | "light";
 type IconName =
@@ -56,7 +64,7 @@ type WorkData = {
   prompt: string;
   ratio: Ratio;
   quality: Quality;
-  model?: ImageModel;
+  model?: string;
   motionPreset?: MotionPreset;
   duration: number;
   settingsOpen?: boolean;
@@ -73,6 +81,8 @@ type WorkData = {
   error?: string;
   canResume?: boolean;
   lastProviderStatus?: string | null;
+  hasImageInput?: boolean;
+  actualCredits?: number | null;
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
@@ -100,18 +110,13 @@ type CanvasProject = {
 type SaveStatus = "loading" | "unsaved" | "saving" | "saved" | "error";
 
 const RATIOS: Ratio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
-const QUALITIES: Quality[] = ["720p", "1k", "2k", "4k"];
-const LONG_EDGE: Record<Quality, number> = { "720p": 720, "1k": 1024, "2k": 2048, "4k": 3840 };
+const VIDEO_QUALITIES: Quality[] = ["480p", "720p", "1080p"];
+const LONG_EDGE: Record<Quality, number> = { "480p": 480, "720p": 720, "1080p": 1080, "1k": 1024, "2k": 2048, "4k": 3840 };
 const VIDEO_FRAME_RATE = 24;
 const MAX_VIDEO_FRAMES = 441;
 const SAFE_VIDEO_MAX_FRAMES = 121;
 const SAFE_VIDEO_QUALITY: Quality = "1k";
 const TEMP_USER_NAME = "Genora";
-const IMAGE_MODELS: Array<{ id: ImageModel; label: string; note: string }> = [
-  { id: "agnes-image-2.1-flash", label: "Agnes Image 2.1 Flash", note: "API" },
-  { id: "ideogram-4-nf4", label: "Ideogram 4 nf4", note: "CUDA" },
-  { id: "ideogram-4-fp8", label: "Ideogram 4 fp8", note: "Local" },
-];
 const MOTION_PRESETS: Array<{ id: MotionPreset; label: string; prompt: string }> = [
   { id: "auto", label: "自动镜头", prompt: "Use natural cinematic motion that best fits the scene." },
   { id: "push-in", label: "缓慢推进", prompt: "Camera slowly pushes in toward the subject." },
@@ -129,6 +134,16 @@ const ERROR_TEXT_ZH: Record<string, string> = {
   INVALID_JSON_RESPONSE: "服务返回了非 JSON 内容，已阻止乱码直接显示。",
   MISSING_OPENAI_API_KEY: "尚未配置 OPENAI_API_KEY，请在 .env 中填写后重启服务。",
   MISSING_AGNES_API_KEY: "尚未配置 Agnes API Key，请在 .env 中配置对应服务的 Key 后重启。",
+  MISSING_APIMART_IMAGE_KEY: "尚未配置 APIMART_KEY_IMAGE，请在 .env 中填写后重启服务。",
+  MISSING_APIMART_VIDEO_KEY: "尚未配置 APIMART_KEY_VIDEO，请在 .env 中填写后重启服务。",
+  APIMART_INSUFFICIENT_CREDITS: "APIMart 余额不足，请充值后重试。",
+  APIMART_RATE_LIMIT: "APIMart 请求过于频繁，请稍后重试。",
+  APIMART_UPSTREAM_ERROR: "APIMart 上游服务暂时不可用，请稍后重试。",
+  APIMART_MISSING_TASK_ID: "APIMart 没有返回任务 ID。",
+  APIMART_UPLOAD_FAILED: "参考图片上传到 APIMart 失败，请稍后重试。",
+  APIMART_TASK_FAILED: "APIMart 生成任务失败。",
+  APIMART_RESULT_MISSING: "APIMart 任务已完成，但没有返回结果地址。",
+  UNSUPPORTED_MODEL_OPTIONS: "当前模型不支持所选比例、画质、时长或参考素材。",
   EMPTY_TEXT_PROMPT: "请输入文本提示词。",
   EMPTY_IMAGE_PROMPT: "请输入图片提示词。",
   EMPTY_VIDEO_PROMPT: "请输入视频提示词。",
@@ -219,6 +234,12 @@ function fileToDataUrl(file: File) {
   });
 }
 
+async function materializeReferenceUrl(url: string) {
+  if (!url.startsWith("blob:")) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+  const blob = await response.blob();
+  return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
 function randomUuid(): string {
   // crypto.randomUUID() 仅在安全上下文（HTTPS/localhost）可用
   // 使用 crypto.getRandomValues() 生成 UUID v4 作为兼容方案
@@ -353,6 +374,18 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const meta = KIND_META[data.kind];
   const isMedia = data.kind.startsWith("media-");
   const [motionOpen, setMotionOpen] = useState(false);
+  const [modelOpen, setModelOpen] = useState(false);
+  const generationKind = data.kind === "image" || data.kind === "video" ? data.kind : undefined;
+  const selectedModelId = data.model ?? (data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0");
+  const selectedModel = generationKind ? getModelDefinition(selectedModelId) : undefined;
+  const availableModels = generationKind ? modelsForKind(generationKind) : [];
+  const qualityOptions = data.kind === "video" ? VIDEO_QUALITIES : selectedModel?.resolutions ?? [];
+  const estimatedCredits = selectedModel ? estimateCredits({
+    model: selectedModel.id,
+    resolution: data.quality,
+    duration: data.duration,
+    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.hasImageInput),
+  }) : 0;
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
   const importMedia = (file?: File) => {
     if (!file) return;
@@ -388,7 +421,16 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
       startFramePicker.current?.click();
       return;
     }
+    if (!selectedModel?.supportsEndFrame) {
+      data.update(id, { error: "当前模型不支持尾帧图片。" });
+      return;
+    }
     endFramePicker.current?.click();
+  };
+  const selectModel = (modelId: string) => {
+    const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
+    data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
+    setModelOpen(false);
   };
 
   if (data.kind === "group") {
@@ -522,67 +564,65 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             placeholder="填写提示词，描述你想生成的内容..."
           />
           <div className="prompt-toolbar">
-            {(data.kind === "image" || data.kind === "video") && (
-              <div className={`settings-details ${data.settingsOpen ? "open" : ""}`}>
-                <button type="button" className="settings-trigger" onClick={(event) => { event.stopPropagation(); data.update(id, { settingsOpen: !data.settingsOpen }); }}>
-                  <i className={`ratio-shape ratio-${data.ratio.replace(":", "-")}`} />
-                  {data.ratio} · {data.quality.toUpperCase()}
+            {selectedModel && (
+              <div className={`model-picker ${modelOpen ? "open" : ""}`}>
+                <button type="button" className="model-trigger" onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
+                  <span>{selectedModel.label}</span>
+                  <small>{selectedModel.free ? "Free" : "APIMart"}</small>
                 </button>
-                {data.settingsOpen && (
-                  <div className="node-options">
-                    <div className="option-block">
-                      <span>画质</span>
-                      <div className="quality-options">
-                        {QUALITIES.map((quality) => (
-                          <button key={quality} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { quality }); }}>
-                            {quality.toUpperCase()}
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {data.kind === "image" && (
-                      <div className="option-block">
-                        <span>模型</span>
-                        <div className="model-options">
-                          {IMAGE_MODELS.map((model) => (
-                            <button
-                              key={model.id}
-                              className={(data.model ?? "agnes-image-2.1-flash") === model.id ? "selected" : ""}
-                              onClick={(event) => {
-                                event.stopPropagation();
-                                data.update(id, { model: model.id });
-                              }}
-                            >
-                              <b>{model.label}</b>
-                              <small>{model.note}</small>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    )}
-                    <div className="option-block">
-                      <span>比例</span>
-                      <div className="ratio-options">
-                        {RATIOS.map((ratio) => (
-                          <button key={ratio} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { ratio }); }}>
-                            <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} />
-                            <em>{ratio}</em>
-                          </button>
-                        ))}
-                      </div>
-                    </div>
-                    {data.kind === "video" && (
-                      <div className="option-block duration-block">
-                        <span>生成时长 <b>{data.duration} 秒 · 24 FPS</b></span>
-                        <input type="range" min="1" max="18" step="1" value={data.duration} onChange={(event) => data.update(id, { duration: Number(event.target.value) })} />
-                        <div><small>1 秒</small><small>≤ 441 帧</small><small>18 秒</small></div>
-                      </div>
-                    )}
+                {modelOpen && (
+                  <div className="model-menu">
+                    {(["apimart", "legacy"] as const).map((group) => {
+                      const groupModels = availableModels.filter((model) => group === "apimart" ? model.provider === "apimart" : model.provider !== "apimart");
+                      if (!groupModels.length) return null;
+                      return <section key={group}>
+                        <header>{group === "apimart" ? "APIMart" : "现有模型"}</header>
+                        {groupModels.map((model) => <button type="button" key={model.id} className={selectedModel.id === model.id ? "selected" : ""} onClick={(event) => { event.stopPropagation(); selectModel(model.id); }}>
+                          <span><b>{model.label}</b><small>{modelCapabilityLabel(model)}</small></span>
+                          <em>{model.free ? "Free" : model.id === selectedModel.id ? "✓" : ""}</em>
+                        </button>)}
+                      </section>;
+                    })}
                   </div>
                 )}
               </div>
             )}
-            {data.kind === "video" && (
+            {selectedModel && (
+              <div className={`settings-details ${data.settingsOpen ? "open" : ""}`}>
+                <button type="button" className="settings-trigger" onClick={(event) => { event.stopPropagation(); setModelOpen(false); data.update(id, { settingsOpen: !data.settingsOpen }); }}>
+                  <i className={`ratio-shape ratio-${data.ratio.replace(":", "-")}`} />
+                  {data.ratio} · {data.quality.toUpperCase()}
+                </button>
+                {data.settingsOpen && <div className="node-options">
+                  <div className="option-block">
+                    <span>画质与分辨率</span>
+                    <div className="quality-options">
+                      {qualityOptions.map((quality) => {
+                        const supported = selectedModel.resolutions.includes(quality);
+                        return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${quality.toUpperCase()}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{quality.toUpperCase()}</button>;
+                      })}
+                    </div>
+                  </div>
+                  <div className="option-block">
+                    <span>比例</span>
+                    <div className="ratio-options">
+                      {RATIOS.map((ratio) => {
+                        const supported = selectedModel.ratios.includes(ratio);
+                        return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
+                          <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
+                        </button>;
+                      })}
+                    </div>
+                  </div>
+                  {data.kind === "video" && <div className="option-block duration-block">
+                    <span>生成时长 <b>{data.duration} 秒</b></span>
+                    <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} step="1" value={data.duration} onChange={(event) => data.update(id, { duration: Number(event.target.value) })} />
+                    <div><small>{selectedModel.minDuration ?? 1} 秒</small><small>按模型能力</small><small>{selectedModel.maxDuration ?? 18} 秒</small></div>
+                  </div>}
+                </div>}
+              </div>
+            )}
+            {data.kind === "video" && selectedModel?.supportsNegativePrompt && (
               <div className={`negative-prompt-details ${data.negativePromptOpen ? "open" : ""}`}>
                 <button type="button" className="negative-prompt-trigger" onClick={(event) => { event.stopPropagation(); data.update(id, { negativePromptOpen: !data.negativePromptOpen }); }}>
                   反向提示词
@@ -599,8 +639,9 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                 )}
               </div>
             )}
-            {data.kind === "video" && <span>{data.duration} 秒 · 24 FPS</span>}
-            <button className="generate-button" aria-label={data.busy ? "????" : "??"} title={data.busy ? "????" : "??"} onClick={() => data.generate(id)}>
+            {data.kind === "video" && <span>{data.duration} 秒</span>}
+            {selectedModel && <span className={`generation-cost ${selectedModel.free ? "free" : ""}`}>{selectedModel.free ? "Free" : `预计 ${estimatedCredits.toFixed(2).replace(/\.00$/, "")} 积分`}</span>}
+            <button className="generate-button" aria-label={data.busy ? "打断生成" : "生成"} title={data.busy ? "打断生成" : "生成"} onClick={() => data.generate(id)}>
               <Icon name={data.busy ? "stop" : "spark"} />
             </button>
           </div>
@@ -622,7 +663,7 @@ function WorkflowCanvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<MenuState>();
   const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState>();
-  const [config, setConfig] = useState({ openaiConfigured: true, agnesConfigured: true });
+  const [config, setConfig] = useState({ openaiConfigured: true, agnesConfigured: true, apimartImageConfigured: false, apimartVideoConfigured: false });
   const [agentOpen, setAgentOpen] = useState(false);
   const [orbOpen, setOrbOpen] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
@@ -667,6 +708,12 @@ function WorkflowCanvas() {
   const agentImagePicker = useRef<HTMLInputElement>(null);
   const agentVideoPicker = useRef<HTMLInputElement>(null);
   const visibleSuggestions = useMemo(() => [0, 1, 2].map((index) => SUGGESTIONS[(suggestionOffset + index) % SUGGESTIONS.length]), [suggestionOffset]);
+  const renderedNodes = useMemo(() => nodes.map((node) => {
+    if (node.data.kind !== "image" && node.data.kind !== "video") return node;
+    const sourceIds = new Set(edges.filter((edge) => edge.target === node.id).map((edge) => edge.source));
+    const hasImageInput = nodes.some((source) => sourceIds.has(source.id) && Boolean(source.data.url) && !source.data.kind.includes("video"));
+    return { ...node, data: { ...node.data, hasImageInput } };
+  }), [edges, nodes]);
 
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
@@ -921,7 +968,7 @@ function WorkflowCanvas() {
         if (!response.ok) throw new Error(responseError(task, "TASK_NOT_FOUND"));
         if (interruptedRef.current.has(nodeId)) return;
         if ((task.status === "completed" || task.status === "succeeded") && task.outputUrl) {
-          update(nodeId, { busy: false, url: task.outputUrl, result: undefined, error: "", canResume: false });
+          update(nodeId, { busy: false, url: task.outputUrl, result: undefined, error: "", canResume: false, actualCredits: task.actualCredits ?? null });
           return;
         }
         if (task.status === "failed") {
@@ -996,7 +1043,12 @@ function WorkflowCanvas() {
     const prompt = [upstream.map((item) => item.data.result || item.data.prompt).filter(Boolean).join("\n\n"), node.data.prompt].filter(Boolean).join("\n\n");
     if (!prompt.trim()) return update(id, { error: "请填写提示词，或连接包含内容的上游节点。" });
     if (node.data.kind === "text" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 AGNES_API_KEY。" });
-    if ((node.data.kind === "image" || node.data.kind === "video") && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 AGNES_API_KEY。" });
+    const modelDefinition = node.data.kind === "image" || node.data.kind === "video"
+      ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0"))
+      : undefined;
+    if (modelDefinition?.provider === "apimart" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
+    if (modelDefinition?.provider === "apimart" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
+    if (modelDefinition?.provider === "agnes" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 Agnes API Key。" });
 
     update(id, { busy: true, error: "", result: node.data.kind === "video" ? "排队中" : undefined });
     try {
@@ -1004,9 +1056,10 @@ function WorkflowCanvas() {
       if (node.data.kind === "text") {
         response = await fetch("/api/text/generate", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ prompt }) });
       } else if (node.data.kind === "image") {
-        const source = upstream.find((item) => item.data.url && !item.data.kind.includes("video"));
         const model = node.data.model ?? "agnes-image-2.1-flash";
-        if (source?.data.url && model.startsWith("ideogram-4")) {
+        const rawReferenceUrls = [node.data.startFrameUrl, ...upstream.filter((item) => item.data.url && !item.data.kind.includes("video")).map((item) => item.data.url)].filter((url): url is string => Boolean(url));
+        const referenceUrls = await Promise.all(rawReferenceUrls.map(materializeReferenceUrl));
+        if (referenceUrls.length && model.startsWith("ideogram-4")) {
           throw new Error("IDEOGRAM_IMG2IMG_UNSUPPORTED");
         }
         response = await fetch("/api/images/generate", {
@@ -1015,23 +1068,30 @@ function WorkflowCanvas() {
           body: JSON.stringify({
             prompt,
             size: imageSize(node.data.ratio, node.data.quality),
-            quality: node.data.quality,
+            ratio: node.data.ratio,
+            resolution: node.data.quality,
             model,
+            referenceUrls,
           }),
         });
       } else {
+        const model = modelDefinition ?? getModelDefinition("agnes-video-v2.0");
         const requestedQuality = node.data.quality;
         const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((node.data.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
-        const safeQuality = requestedQuality === "720p" ? requestedQuality : SAFE_VIDEO_QUALITY;
-        const safeFrames = Math.min(SAFE_VIDEO_MAX_FRAMES, requestedFrames);
+        const safeQuality = model.provider === "agnes" ? (requestedQuality === "720p" ? requestedQuality : SAFE_VIDEO_QUALITY) : requestedQuality;
+        const safeFrames = model.provider === "agnes" ? Math.min(SAFE_VIDEO_MAX_FRAMES, requestedFrames) : requestedFrames;
         const [width, height] = dimensions(node.data.ratio, safeQuality);
-        if (requestedQuality !== safeQuality || requestedFrames !== safeFrames) {
+        if (model.provider === "agnes" && (requestedQuality !== safeQuality || requestedFrames !== safeFrames)) {
           update(id, {
             result: `已按稳定生成策略提交：${safeQuality.toUpperCase()} · ${safeFrames} 帧。高画质或长时长容易触发 Agnes 上游显存不足。`,
           });
         }
         const form = new FormData();
         form.set("prompt", prompt);
+        form.set("model", model.id);
+        form.set("ratio", node.data.ratio);
+        form.set("resolution", node.data.quality);
+        form.set("duration", String(node.data.duration));
         if (node.data.negativePrompt) form.set("negativePrompt", node.data.negativePrompt);
         form.set("width", String(width));
         form.set("height", String(height));
@@ -1058,7 +1118,7 @@ function WorkflowCanvas() {
       }
       const body = await readJson(response);
       if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
-      if (node.data.kind === "video") {
+      if ((node.data.kind === "video" || node.data.kind === "image") && body.id && !body.outputUrl) {
         update(id, { busy: true, taskId: body.id, result: "排队中" });
         pollTask(id, body.id);
       } else {
@@ -1115,9 +1175,9 @@ function WorkflowCanvas() {
         kind,
         title: file?.name ?? KIND_META[kind].title,
         prompt: "",
-        ratio: "1:1",
-        quality: kind === "video" ? SAFE_VIDEO_QUALITY : "2k",
-        model: kind === "image" ? "agnes-image-2.1-flash" : undefined,
+        ratio: kind === "video" ? "16:9" : "1:1",
+        quality: kind === "video" ? "720p" : "1k",
+        model: kind === "image" ? "gpt-image-2" : kind === "video" ? "kling-v3-omni" : undefined,
         motionPreset: kind === "video" ? "auto" : undefined,
         duration: 5,
         negativePrompt: "",
@@ -1527,7 +1587,7 @@ function WorkflowCanvas() {
       <input ref={agentVideoPicker} hidden type="file" accept="video/*" onChange={(event) => importAgentMedia(event.target.files?.[0], "video")} />
 
       <ReactFlow
-        nodes={nodes}
+        nodes={renderedNodes}
         edges={edges}
         nodeTypes={nodeTypes}
         onNodesChange={(changes) => {
