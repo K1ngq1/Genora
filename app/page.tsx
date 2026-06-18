@@ -240,6 +240,12 @@ async function materializeReferenceUrl(url: string) {
   if (!response.ok) throw new Error("DOWNLOAD_FAILED");
   const blob = await response.blob();
   return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
+function randomUuid(): string {
+  // crypto.randomUUID() 仅在安全上下文（HTTPS/localhost）可用
+  // 使用 crypto.getRandomValues() 生成 UUID v4 作为兼容方案
+  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
+    (Number(c) ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> Number(c) / 4).toString(16)
+  );
 }
 
 async function appendImageFromUrl(form: FormData, field: string, url: string, name: string, mode: "set" | "append" = "set") {
@@ -798,7 +804,7 @@ function WorkflowCanvas() {
     const minX = Math.min(...topLevel.map((node) => node.position.x));
     const minY = Math.min(...topLevel.map((node) => node.position.y));
     const target = position ?? reactFlow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    const idMap = new Map(snapshot.nodes.map((node) => [node.id, crypto.randomUUID()]));
+    const idMap = new Map(snapshot.nodes.map((node) => [node.id, randomUuid()]));
     const pastedNodes = snapshot.nodes.map((node) => ({
       ...node,
       id: idMap.get(node.id) as string,
@@ -821,7 +827,7 @@ function WorkflowCanvas() {
     })) as WorkNode[];
     const pastedEdges = snapshot.edges.map((edge) => ({
       ...edge,
-      id: crypto.randomUUID(),
+      id: randomUuid(),
       source: idMap.get(edge.source) as string,
       target: idMap.get(edge.target) as string,
       selected: false,
@@ -842,7 +848,7 @@ function WorkflowCanvas() {
     const minY = Math.min(...selected.map((node) => node.position.y));
     const maxX = Math.max(...selected.map((node) => node.position.x + (node.measured?.width ?? 340)));
     const maxY = Math.max(...selected.map((node) => node.position.y + (node.measured?.height ?? 220)));
-    const groupId = crypto.randomUUID();
+    const groupId = randomUuid();
     const groupX = minX - 28;
     const groupY = minY - 52;
     const groupNode: WorkNode = {
@@ -1142,14 +1148,14 @@ function WorkflowCanvas() {
     if (!sourceIds.length) return;
     markUnsaved();
     setEdges((current) => sourceIds.reduce(
-      (next, memberId) => addEdge({ id: `${memberId}-${targetId}-${crypto.randomUUID()}`, source: memberId, target: targetId, animated: true }, next),
+      (next, memberId) => addEdge({ id: `${memberId}-${targetId}-${randomUuid()}`, source: memberId, target: targetId, animated: true }, next),
       current,
     ));
   }, [markUnsaved, setEdges]);
 
   const addNode = useCallback(async (kind: Kind, position?: { x: number; y: number }, file?: File, sourceId?: string) => {
     const point = position ?? reactFlow.screenToFlowPosition({ x: window.innerWidth / 2, y: window.innerHeight / 2 });
-    const id = crypto.randomUUID();
+    const id = randomUuid();
     let persistentUrl: string | undefined;
     if (file) {
       try {
@@ -1536,7 +1542,7 @@ function WorkflowCanvas() {
   const importAgentMedia = useCallback(async (file: File | undefined, kind: "image" | "video") => {
     if (!file) return;
     const attachment: AgentAttachment = {
-      id: crypto.randomUUID(),
+      id: randomUuid(),
       kind,
       name: file.name,
       url: URL.createObjectURL(file),
