@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { startImageTask } from "@/lib/image-task-runner";
+import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
 import { publicTask } from "@/lib/tasks";
 import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sync";
 import { startVideoTask } from "@/lib/video-task-runner";
@@ -21,7 +22,9 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
   }
 
   if (task.type !== "image") ensureBackgroundVideoPolling();
-  const synced = task.type === "image" ? { task } : await syncVideoTask(task);
+  const synced = isApimartTask(task)
+    ? { task: await syncApimartTask(task) }
+    : task.type === "image" ? { task } : await syncVideoTask(task);
   task = synced.task;
 
   return Response.json(

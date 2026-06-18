@@ -5,16 +5,24 @@ function safeJsonParse(text: string): Record<string, unknown> {
   try { return JSON.parse(text); } catch { return {}; }
 }
 import { generateAgnesImage } from "@/lib/agnes";
+import { createApimartImage, uploadApimartImage } from "@/lib/apimart";
 import { db } from "@/lib/db";
 import { generateIdeogramImage, isIdeogramModel } from "@/lib/ideogram";
 import { saveBuffer } from "@/lib/storage";
 import { errorMessage } from "@/lib/tasks";
 import { isActiveTaskStatus } from "@/lib/task-status";
+import { mimeFromName } from "@/lib/storage";
+import { basename } from "node:path";
+import { readFile } from "node:fs/promises";
 
 type ImageTaskParams = {
   size?: string;
   model?: string;
   seed?: number;
+  provider?: string;
+  ratio?: string;
+  resolution?: string;
+  referencePaths?: string[];
 };
 
 const activeImageTasks = new Map<string, Promise<Task | null>>();
@@ -30,10 +38,36 @@ function parseSize(size = "1024x1024") {
 async function executeImageTask(taskId: string) {
   const task = await db.task.findUnique({ where: { id: taskId } });
   if (!task || task.type !== "image" || !isActiveTaskStatus(task.status)) return task;
-
-  await db.task.update({ where: { id: task.id }, data: { status: "processing", error: null } });
   const params = safeJsonParse(task.params) as ImageTaskParams;
   const model = params.model ?? "agnes-image-2.1-flash";
+
+  if (params.provider === "apimart") {
+    if (task.remoteTaskId) return task;
+    const claim = await db.task.updateMany({
+      where: { id: task.id, status: "pending", remoteTaskId: null },
+      data: { status: "submitting", error: null },
+    });
+    if (!claim.count) return db.task.findUnique({ where: { id: task.id } });
+    try {
+      const imageUrls: string[] = [];
+      for (const filePath of params.referencePaths ?? []) {
+        const bytes = await readFile(filePath);
+        imageUrls.push(await uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "image"));
+      }
+      const remoteTaskId = await createApimartImage({
+        model,
+        prompt: task.prompt,
+        ratio: params.ratio ?? "1:1",
+        resolution: params.resolution ?? "1k",
+        imageUrls,
+      });
+      return db.task.update({ where: { id: task.id }, data: { status: "queued", remoteTaskId } });
+    } catch (error) {
+      return db.task.update({ where: { id: task.id }, data: { status: "failed", error: errorMessage(error) } });
+    }
+  }
+
+  await db.task.update({ where: { id: task.id }, data: { status: "processing", error: null } });
 
   try {
     const image = isIdeogramModel(model)

@@ -22,6 +22,9 @@ export function publicTask(task: Task) {
     errorCode: params.errorCode ?? task.error,
     canResume: task.canResume,
     lastProviderStatus: params.lastRemoteStatus ?? null,
+    provider: params.provider ?? null,
+    estimatedCredits: params.estimatedCredits ?? null,
+    actualCredits: params.actualCredits ?? null,
     createdAt: task.createdAt,
     updatedAt: task.updatedAt,
   };

@@ -1,10 +1,12 @@
 import type { Task } from "@prisma/client";
 import { createAgnesVideo } from "@/lib/agnes";
+import { createApimartVideo, uploadApimartImage } from "@/lib/apimart";
 import { combineGenerationPrompts } from "@/lib/prompt-options";
 import { db } from "@/lib/db";
 import { mimeFromName } from "@/lib/storage";
 import { errorMessage } from "@/lib/tasks";
 import { readFile } from "node:fs/promises";
+import { basename } from "node:path";
 
 function safeJsonParse(text: string): Record<string, unknown> {
   if (!text) return {};
@@ -18,6 +20,13 @@ type VideoTaskParams = {
   frameRate: number;
   model: string;
   negativePrompt?: string;
+  provider?: string;
+  ratio?: string;
+  resolution?: string;
+  duration?: number;
+  startFramePath?: string;
+  endFramePath?: string;
+  referencePaths?: string[];
 };
 
 const activeVideoTasks = new Map<string, Promise<Task | null>>();
@@ -51,6 +60,34 @@ async function executeVideoTask(taskId: string) {
   const negativePrompt = params.negativePrompt ?? "";
 
   try {
+    if (params.provider === "apimart") {
+      const uploadPath = async (filePath?: string) => {
+        if (!filePath) return undefined;
+        const bytes = await readFile(filePath);
+        return uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "video");
+      };
+      const startFrameUrl = await uploadPath(params.startFramePath ?? task.inputPath ?? undefined);
+      const endFrameUrl = await uploadPath(params.endFramePath);
+      const referenceUrls: string[] = [];
+      for (const filePath of params.referencePaths ?? []) {
+        referenceUrls.push(String(await uploadPath(filePath)));
+      }
+      const remoteTaskId = await createApimartVideo({
+        model: params.model,
+        prompt: task.prompt,
+        negativePrompt,
+        ratio: params.ratio ?? "16:9",
+        resolution: params.resolution ?? "720p",
+        duration: params.duration ?? 5,
+        startFrameUrl,
+        endFrameUrl,
+        referenceUrls,
+      });
+      const current = await db.task.findUnique({ where: { id: task.id } });
+      if (!current || current.status === "cancelled") return current;
+      return db.task.update({ where: { id: task.id }, data: { status: "queued", remoteTaskId } });
+    }
+
     const combinedPrompt = combineGenerationPrompts(task.prompt, negativePrompt);
     const payload: Record<string, unknown> = {
       model: params.model,

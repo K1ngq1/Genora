@@ -2,7 +2,7 @@ import { readdir, readFile } from "node:fs/promises";
 import path from "node:path";
 
 const root = process.cwd();
-const ignoredDirs = new Set([".git", ".next", ".next-build", ".netlify", "node_modules", "storage", "vendor", ".venv-ideogram"]);
+const ignoredDirs = new Set([".git", ".next", ".next-build", ".next-dev", ".netlify", "node_modules", "storage", "vendor", ".venv-ideogram"]);
 const textExtensions = new Set([".ts", ".tsx", ".js", ".mjs", ".css", ".md", ".json", ".prisma"]);
 const suspiciousPatterns = [
   /\uFFFD/,

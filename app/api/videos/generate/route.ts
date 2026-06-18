@@ -4,6 +4,8 @@ import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { scheduleVideoTask } from "@/lib/video-task-runner";
 import { ensureBackgroundVideoPolling } from "@/lib/video-task-sync";
+import { isApimartConfigured } from "@/lib/apimart";
+import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
 
 const MAX_UPLOAD = 10 * 1024 * 1024;
 const ALLOWED = new Set(["image/png", "image/jpeg", "image/webp"]);
@@ -48,6 +50,21 @@ export async function POST(request: Request) {
   const negativePrompt = String(form.get("negativePrompt") ?? "").trim();
   if (!prompt) return errorResponse(new AppError("EMPTY_VIDEO_PROMPT", 400), 400);
 
+  const modelId = String(form.get("model") ?? "kling-v3-omni");
+  let model;
+  try {
+    model = getModelDefinition(modelId);
+    if (model.kind !== "video") throw new AppError("UNSUPPORTED_MODEL_OPTIONS", 400);
+    if (model.provider === "apimart" && !isApimartConfigured("video")) throw new AppError("MISSING_APIMART_VIDEO_KEY", 503);
+  } catch (error) {
+    return errorResponse(error, error instanceof AppError ? error.status : 400);
+  }
+  const normalized = normalizeModelOptions(model.id, {
+    ratio: String(form.get("ratio") ?? "16:9"),
+    resolution: String(form.get("resolution") ?? form.get("quality") ?? model.defaultResolution),
+    duration: Number(form.get("duration") ?? 5),
+  });
+
   const requestedWidth = Number(form.get("width") ?? 1280);
   const requestedHeight = Number(form.get("height") ?? 720);
   const videoSize = normalizeDimensions(requestedWidth, requestedHeight);
@@ -85,12 +102,40 @@ export async function POST(request: Request) {
   if (!endFramePath && referenceImages[1]) endFramePath = referenceImages[1].path;
   if (startFramePath || (!inputPath && endFramePath)) inputPath = startFramePath ?? endFramePath;
 
+  if (startFramePath && !model.supportsStartFrame) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
+  if (endFramePath && !model.supportsEndFrame) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
+  if (referenceImages.length && !model.supportsReferences) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
+  if (model.id === "happyhorse-1.0" && startFramePath && referenceImages.length > 1) {
+    return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
+  }
+  const estimatedCredits = estimateCredits({
+    model: model.id,
+    resolution: normalized.resolution,
+    duration: normalized.duration,
+    hasImageInput: Boolean(startFramePath || endFramePath || referenceImages.length),
+  });
+
   const task = await db.task.create({
     data: {
       type: inputPath ? "image-to-video" : "text-to-video",
       status: "pending",
       prompt,
-      params: JSON.stringify({ width, height, numFrames, frameRate, model: "agnes-video-v2.0", negativePrompt: negativePrompt || undefined }),
+      params: JSON.stringify({
+        provider: model.provider,
+        width,
+        height,
+        numFrames,
+        frameRate,
+        model: model.id,
+        ratio: normalized.ratio,
+        resolution: normalized.resolution,
+        duration: normalized.duration,
+        negativePrompt: negativePrompt || undefined,
+        startFramePath,
+        endFramePath,
+        referencePaths: referenceImages.map((item) => item.path),
+        estimatedCredits,
+      }),
       inputPath,
     },
   });
