@@ -7,6 +7,8 @@ import { mimeFromName } from "@/lib/storage";
 import { errorMessage } from "@/lib/tasks";
 import { readFile } from "node:fs/promises";
 import { basename } from "node:path";
+import { errorDetail } from "@/lib/error-codes";
+import { sanitizeApimartDetail } from "@/lib/apimart";
 
 function safeJsonParse(text: string): Record<string, unknown> {
   if (!text) return {};
@@ -64,7 +66,7 @@ async function executeVideoTask(taskId: string) {
       const uploadPath = async (filePath?: string) => {
         if (!filePath) return undefined;
         const bytes = await readFile(filePath);
-        return uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "video");
+        return uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "video", params.model);
       };
       const startFrameUrl = await uploadPath(params.startFramePath ?? task.inputPath ?? undefined);
       const endFrameUrl = await uploadPath(params.endFramePath);
@@ -114,11 +116,17 @@ async function executeVideoTask(taskId: string) {
     const current = await db.task.findUnique({ where: { id: task.id } });
     if (!current || current.status === "cancelled") return current;
     const errorCode = errorMessage(error);
+    const providerErrorDetail = params.provider === "apimart" ? sanitizeApimartDetail(errorDetail(error)) : undefined;
     const timedOut = errorCode === "AGNES_REQUEST_TIMEOUT";
     videoLog(timedOut ? "task-timeout" : "task-failed", { localTaskId: task.id, errorCode, detail: String(error) });
     return db.task.update({
       where: { id: task.id },
-      data: { status: timedOut ? "timeout" : "failed", error: errorCode, canResume: false },
+      data: {
+        status: timedOut ? "timeout" : "failed",
+        error: errorCode,
+        canResume: false,
+        params: JSON.stringify({ ...params, errorCode, ...(providerErrorDetail ? { providerErrorDetail } : {}) }),
+      },
     });
   }
 }

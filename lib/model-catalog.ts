@@ -1,10 +1,16 @@
+import { APIMART_DEV_IMAGE_MODEL, APIMART_DEV_VIDEO_MODEL } from "./apimart-models.ts";
+
 export type GenerationKind = "image" | "video";
 export type ModelProvider = "apimart" | "agnes" | "ideogram";
 export type CanvasRatio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
 export type CanvasResolution = "480p" | "720p" | "1080p" | "1k" | "2k" | "4k";
 
 type FreePricing = { type: "free" };
-type FixedPricing = { type: "fixed"; credits: Partial<Record<CanvasResolution, number>> };
+type FixedPricing = {
+  type: "fixed";
+  credits: Partial<Record<CanvasResolution, number>>;
+  inputCredits?: Partial<Record<CanvasResolution, number>>;
+};
 type PerSecondPricing = {
   type: "per-second";
   credits: Partial<Record<CanvasResolution, number>>;
@@ -16,6 +22,7 @@ export type ModelDefinition = {
   label: string;
   kind: GenerationKind;
   provider: ModelProvider;
+  keyScope?: "dev";
   free: boolean;
   ratios: CanvasRatio[];
   resolutions: CanvasResolution[];
@@ -46,6 +53,12 @@ export const MODEL_CATALOG: ModelDefinition[] = [
     pricing: { type: "fixed", credits: { "1k": 0.06, "2k": 0.12, "4k": 0.18 } },
   },
   {
+    id: APIMART_DEV_IMAGE_MODEL, label: "GPT Image 2 Official · Dev", kind: "image", provider: "apimart", keyScope: "dev", free: false,
+    ratios: ["1:1"], resolutions: ["1k"], defaultRatio: "1:1", defaultResolution: "1k",
+    supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
+    pricing: { type: "fixed", credits: { "1k": 0.0488 }, inputCredits: { "1k": 0.08508 } },
+  },
+  {
     id: "doubao-seedance-2.0", label: "Seedance 2.0", kind: "video", provider: "apimart", free: false,
     ratios: ALL_RATIOS, resolutions: ["480p", "720p", "1080p"], defaultRatio: "16:9", defaultResolution: "720p",
     minDuration: 4, maxDuration: 15, supportsStartFrame: true, supportsEndFrame: true, supportsReferences: true, supportsNegativePrompt: false,
@@ -66,6 +79,12 @@ export const MODEL_CATALOG: ModelDefinition[] = [
     ratios: ALL_RATIOS, resolutions: ["720p", "1080p"], defaultRatio: "16:9", defaultResolution: "720p",
     minDuration: 3, maxDuration: 15, supportsStartFrame: true, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
     pricing: { type: "per-second", credits: { "720p": 1.3, "1080p": 2.3 } },
+  },
+  {
+    id: APIMART_DEV_VIDEO_MODEL, label: "Grok Imagine 1.5 Video · Dev", kind: "video", provider: "apimart", keyScope: "dev", free: false,
+    ratios: ["1:1", "16:9", "9:16"], resolutions: ["480p", "720p"], defaultRatio: "16:9", defaultResolution: "480p",
+    minDuration: 6, maxDuration: 30, supportsStartFrame: true, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
+    pricing: { type: "per-second", credits: { "480p": 0.07, "720p": 0.07 } },
   },
   {
     id: "agnes-image-2.1-flash", label: "Agnes Image 2.1 Flash", kind: "image", provider: "agnes", free: true,
@@ -115,7 +134,10 @@ export function estimateCredits(options: { model: string; resolution: string; du
   const model = getModelDefinition(options.model);
   if (model.pricing.type === "free") return 0;
   const resolution = options.resolution.toLowerCase() as CanvasResolution;
-  if (model.pricing.type === "fixed") return model.pricing.credits[resolution] ?? 0;
+  if (model.pricing.type === "fixed") {
+    const rates = options.hasImageInput && model.pricing.inputCredits ? model.pricing.inputCredits : model.pricing.credits;
+    return rates[resolution] ?? 0;
+  }
   const rates = options.hasImageInput && model.pricing.inputCredits ? model.pricing.inputCredits : model.pricing.credits;
   return Number(((rates[resolution] ?? 0) * options.duration).toFixed(6));
 }

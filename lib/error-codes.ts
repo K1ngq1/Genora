@@ -5,6 +5,7 @@ export const ERROR_MESSAGES_ZH = {
   MISSING_AGNES_API_KEY: "尚未配置 Agnes API Key，请在 .env 中配置后重启服务",
   MISSING_APIMART_IMAGE_KEY: "尚未配置 APIMART_KEY_IMAGE，请配置后重启服务",
   MISSING_APIMART_VIDEO_KEY: "尚未配置 APIMART_KEY_VIDEO，请配置后重启服务",
+  MISSING_APIMART_DEV_KEY: "尚未配置 APIMART_KEY_DEV，请配置后重启服务",
   APIMART_INSUFFICIENT_CREDITS: "APIMart 积分不足，请充值后重试",
   APIMART_RATE_LIMIT: "APIMart 请求过于频繁，请稍后重试",
   APIMART_UPSTREAM_ERROR: "APIMart 上游服务请求失败，请稍后重试",

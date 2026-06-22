@@ -33,7 +33,7 @@ export async function POST(request: Request) {
 
     const model = getModelDefinition(modelId);
     if (model.kind !== "image") throw new AppError("UNKNOWN_ERROR", 400, "Model is not an image model");
-    if (model.provider === "apimart" && !isApimartConfigured("image")) throw new AppError("MISSING_APIMART_IMAGE_KEY", 503);
+    if (model.provider === "apimart" && !isApimartConfigured("image", model.id)) throw new AppError(model.keyScope === "dev" ? "MISSING_APIMART_DEV_KEY" : "MISSING_APIMART_IMAGE_KEY", 503);
     if (model.provider === "agnes" && !isAgnesConfigured("image")) throw new AppError("MISSING_AGNES_API_KEY", 503);
 
     const normalized = normalizeModelOptions(model.id, {

@@ -83,6 +83,7 @@ type WorkData = {
   lastProviderStatus?: string | null;
   hasImageInput?: boolean;
   actualCredits?: number | null;
+  uploadAsset: (file: File) => Promise<string>;
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
@@ -90,7 +91,7 @@ type WorkData = {
 
 type WorkNode = Node<WorkData, "work">;
 type DeletedCanvasEntry = { nodes: WorkNode[]; edges: Edge[] };
-type StoredWorkData = Omit<WorkData, "update" | "remove" | "generate">;
+type StoredWorkData = Omit<WorkData, "uploadAsset" | "update" | "remove" | "generate">;
 type StoredWorkNode = Omit<WorkNode, "data"> & { data: StoredWorkData };
 type MenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; sourceId?: string };
 type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; nodeId: string };
@@ -136,6 +137,7 @@ const ERROR_TEXT_ZH: Record<string, string> = {
   MISSING_AGNES_API_KEY: "尚未配置 Agnes API Key，请在 .env 中配置对应服务的 Key 后重启。",
   MISSING_APIMART_IMAGE_KEY: "尚未配置 APIMART_KEY_IMAGE，请在 .env 中填写后重启服务。",
   MISSING_APIMART_VIDEO_KEY: "尚未配置 APIMART_KEY_VIDEO，请在 .env 中填写后重启服务。",
+  MISSING_APIMART_DEV_KEY: "尚未配置 APIMART_KEY_DEV，请在 .env 中填写后重启服务。",
   APIMART_INSUFFICIENT_CREDITS: "APIMart 余额不足，请充值后重试。",
   APIMART_RATE_LIMIT: "APIMart 请求过于频繁，请稍后重试。",
   APIMART_UPSTREAM_ERROR: "APIMart 上游服务暂时不可用，请稍后重试。",
@@ -240,6 +242,8 @@ async function materializeReferenceUrl(url: string) {
   if (!response.ok) throw new Error("DOWNLOAD_FAILED");
   const blob = await response.blob();
   return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
+}
+
 function randomUuid(): string {
   // crypto.randomUUID() 仅在安全上下文（HTTPS/localhost）可用
   // 使用 crypto.getRandomValues() 生成 UUID v4 作为兼容方案
@@ -387,31 +391,39 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.hasImageInput),
   }) : 0;
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
-  const importMedia = (file?: File) => {
+  const importMedia = async (file?: File) => {
     if (!file) return;
-    data.update(id, {
-      kind: file.type.startsWith("video/") ? "media-video" : "media-image",
-      title: file.name,
-      url: URL.createObjectURL(file),
-      result: undefined,
-      error: "",
-    });
+    try {
+      const url = await data.uploadAsset(file);
+      data.update(id, {
+        kind: file.type.startsWith("video/") ? "media-video" : "media-image",
+        title: file.name,
+        url,
+        result: undefined,
+        error: "",
+      });
+    } catch (error) {
+      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
+    }
   };
-  const importFrame = (slot: "start" | "end", file?: File) => {
+  const importFrame = async (slot: "start" | "end", file?: File) => {
     if (!file) return;
     if (!file.type.startsWith("image/")) {
       data.update(id, { error: "首尾帧只能上传图片素材。" });
       return;
     }
-    if (slot === "start") {
-      data.update(id, { startFrameUrl: URL.createObjectURL(file), startFrameName: file.name, error: "" });
-    } else {
-      data.update(id, { endFrameUrl: URL.createObjectURL(file), endFrameName: file.name, error: "" });
+    try {
+      const url = await data.uploadAsset(file);
+      if (slot === "start") {
+        data.update(id, { startFrameUrl: url, startFrameName: file.name, error: "" });
+      } else {
+        data.update(id, { endFrameUrl: url, endFrameName: file.name, error: "" });
+      }
+    } catch (error) {
+      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
     }
   };
   const removeFrame = (slot: "start" | "end") => {
-    const url = slot === "start" ? data.startFrameUrl : data.endFrameUrl;
-    if (url?.startsWith("blob:")) URL.revokeObjectURL(url);
     data.update(id, slot === "start"
       ? { startFrameUrl: undefined, startFrameName: undefined }
       : { endFrameUrl: undefined, endFrameName: undefined });
@@ -663,7 +675,7 @@ function WorkflowCanvas() {
   const [edges, setEdges, onEdgesChange] = useEdgesState<Edge>([]);
   const [menu, setMenu] = useState<MenuState>();
   const [nodeContextMenu, setNodeContextMenu] = useState<NodeContextMenuState>();
-  const [config, setConfig] = useState({ openaiConfigured: true, agnesConfigured: true, apimartImageConfigured: false, apimartVideoConfigured: false });
+  const [config, setConfig] = useState({ openaiConfigured: true, agnesConfigured: true, apimartImageConfigured: false, apimartVideoConfigured: false, apimartDevConfigured: false });
   const [agentOpen, setAgentOpen] = useState(false);
   const [orbOpen, setOrbOpen] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
@@ -703,6 +715,7 @@ function WorkflowCanvas() {
   const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
+  const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
   const imagePicker = useRef<HTMLInputElement>(null);
   const videoPicker = useRef<HTMLInputElement>(null);
   const agentImagePicker = useRef<HTMLInputElement>(null);
@@ -781,7 +794,7 @@ function WorkflowCanvas() {
       .filter((node) => idSet.has(node.id))
       .map((node) => {
         const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["update", "remove", "generate"].includes(key)),
+          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
         ) as StoredWorkData;
         return { ...node, selected: false, data };
       });
@@ -820,6 +833,7 @@ function WorkflowCanvas() {
         result: undefined,
         error: "",
         canResume: false,
+        uploadAsset: (file) => uploadAssetRef.current(file),
         update,
         remove,
         generate: (id) => generateRef.current(id),
@@ -863,6 +877,7 @@ function WorkflowCanvas() {
         ratio: "1:1",
         quality: "720p",
         duration: 0,
+        uploadAsset: (file) => uploadAssetRef.current(file),
         update,
         remove,
         generate: (id) => generateRef.current(id),
@@ -1046,8 +1061,9 @@ function WorkflowCanvas() {
     const modelDefinition = node.data.kind === "image" || node.data.kind === "video"
       ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0"))
       : undefined;
-    if (modelDefinition?.provider === "apimart" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
-    if (modelDefinition?.provider === "apimart" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
+    if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope === "dev" && !configRef.current.apimartDevConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_DEV。" });
+    if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
+    if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
     if (modelDefinition?.provider === "agnes" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 Agnes API Key。" });
 
     update(id, { busy: true, error: "", result: node.data.kind === "video" ? "排队中" : undefined });
@@ -1133,13 +1149,17 @@ function WorkflowCanvas() {
   }, [generate]);
 
   const uploadCanvasFile = useCallback(async (file: File) => {
+    const projectId = projectRef.current?.id;
+    if (!projectId) throw new Error("PROJECT_NOT_READY");
     const form = new FormData();
     form.set("file", file);
+    form.set("projectId", projectId);
     const response = await fetch("/api/uploads", { method: "POST", body: form });
     const body = await readJson(response);
     if (!response.ok || !body.url) throw new Error(String(body.error ?? "UPLOAD_FAILED"));
     return String(body.url);
   }, []);
+  useEffect(() => { uploadAssetRef.current = uploadCanvasFile; }, [uploadCanvasFile]);
   const fanOutGroupConnection = useCallback((sourceId: string, targetId: string) => {
     const source = nodesRef.current.find((node) => node.id === sourceId);
     const sourceIds = source?.data.kind === "group"
@@ -1182,6 +1202,7 @@ function WorkflowCanvas() {
         duration: 5,
         negativePrompt: "",
         url: persistentUrl,
+        uploadAsset: (nextFile) => uploadAssetRef.current(nextFile),
         update,
         remove,
         generate,
@@ -1244,7 +1265,7 @@ function WorkflowCanvas() {
   const canvasProjectData = useCallback(() => {
     const storedNodes = nodesRef.current.map((node) => {
       const data = Object.fromEntries(
-        Object.entries(node.data).filter(([key]) => !["update", "remove", "generate"].includes(key)),
+        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
       ) as StoredWorkData;
       return {
         ...node,
@@ -1411,6 +1432,7 @@ function WorkflowCanvas() {
         data: {
           ...node.data,
           busy: false,
+          uploadAsset: (file) => uploadAssetRef.current(file),
           update,
           remove,
           generate,

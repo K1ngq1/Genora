@@ -1,5 +1,5 @@
 import type { Task } from "@prisma/client";
-import { getApimartTask } from "@/lib/apimart";
+import { downloadApimartFile, getApimartTask } from "@/lib/apimart";
 import { db } from "@/lib/db";
 import { saveBuffer } from "@/lib/storage";
 
@@ -15,7 +15,7 @@ export async function syncApimartTask(task: Task) {
   if (!task.remoteTaskId || !isApimartTask(task)) return task;
   const params = safeJsonParse(task.params);
   const service = task.type === "image" ? "image" : "video";
-  const remote = await getApimartTask(task.remoteTaskId, service);
+  const remote = await getApimartTask(task.remoteTaskId, service, String(params.model ?? ""));
   const actualCredits = remote.creditsCost ?? params.actualCredits;
   const nextParams = JSON.stringify({ ...params, actualCredits, lastRemoteStatus: remote.status });
 
@@ -35,11 +35,13 @@ export async function syncApimartTask(task: Task) {
     return db.task.update({ where: { id: task.id }, data: { status: "failed", error: "APIMART_RESULT_MISSING", params: nextParams } });
   }
 
-  const response = await fetch(remote.outputUrl);
-  if (!response.ok) {
+  let output: Buffer;
+  try {
+    output = await downloadApimartFile(remote.outputUrl);
+  } catch {
     return db.task.update({ where: { id: task.id }, data: { status: "failed", error: "DOWNLOAD_FAILED", params: nextParams } });
   }
-  const outputPath = await saveBuffer(task.type === "image" ? "images" : "videos", `${task.id}.${task.type === "image" ? "png" : "mp4"}`, Buffer.from(await response.arrayBuffer()));
+  const outputPath = await saveBuffer(task.type === "image" ? "images" : "videos", `${task.id}.${task.type === "image" ? "png" : "mp4"}`, output);
   return db.task.update({
     where: { id: task.id },
     data: { status: "completed", outputPath, error: null, params: nextParams },
