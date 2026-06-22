@@ -39,13 +39,11 @@ export const ERROR_MESSAGES_ZH = {
   AGNES_VIDEO_FAILED: "Agnes 视频生成失败",
   AGNES_VIDEO_MISSING_URL: "Agnes 任务已完成但未返回视频地址",
   AGNES_VIDEO_TIMEOUT: "视频生成等待超时，任务仍在远端处理中，可稍后继续查询",
-  IDEOGRAM_MISSING_HF_TOKEN: "尚未配置 HF_TOKEN，无法下载 Ideogram 4 模型权重",
-  IDEOGRAM_MODEL_ACCESS_DENIED: "无法访问 Ideogram 4 模型。请先在 Hugging Face 接受模型协议",
-  IDEOGRAM_NOT_INSTALLED: "Ideogram 4 本地 Python 环境未安装，请先在 vendor/ideogram4 中执行 pip install -e .",
-  IDEOGRAM_NF4_REQUIRES_CUDA: "Ideogram 4 nf4 需要 CUDA 显卡，当前为 CPU 环境，请改用 fp8 或切换环境",
-  IDEOGRAM_INFERENCE_FAILED: "Ideogram 4 本地推理失败，请检查 Python 环境、显存和模型权限",
-  IDEOGRAM_IMG2IMG_UNSUPPORTED: "Ideogram 4 目前仅支持文生图，暂不支持图生图",
   DOWNLOAD_FAILED: "下载生成结果失败，请稍后重试",
+  MISSING_PUBLIC_IMAGE_STORAGE: "尚未配置 Agnes 公网图片存储",
+  PUBLIC_IMAGE_UPLOAD_FAILED: "图片上传到公网对象存储失败",
+  INVALID_PUBLIC_IMAGE_URL: "图片 URL 不是安全的公网 HTTPS 地址",
+  PUBLIC_IMAGE_PREFLIGHT_FAILED: "公网图片 URL 预检失败",
 } as const;
 
 export type ErrorCode = keyof typeof ERROR_MESSAGES_ZH;
@@ -81,10 +79,6 @@ export function errorCodeFromUnknown(error: unknown): ErrorCode {
   if (/429|rate|too many/i.test(message)) return "AGNES_RATE_LIMIT";
   if (/520|cloudflare|web server is returning an unknown error/i.test(message)) return "AGNES_CLOUDFLARE_520";
   if (/do_request_failed|upstream error|500|502|503|504/i.test(message)) return "AGNES_UPSTREAM_ERROR";
-  if (/GatedRepoError|not authorized|restricted/i.test(message)) return "IDEOGRAM_MODEL_ACCESS_DENIED";
-  if (/ModuleNotFoundError|No module named|ImportError/i.test(message)) return "IDEOGRAM_NOT_INSTALLED";
-  if (/CUDA|bitsandbytes|nf4/i.test(message)) return "IDEOGRAM_NF4_REQUIRES_CUDA";
-  if (/ENOENT|spawn|python/i.test(message)) return "IDEOGRAM_NOT_INSTALLED";
   if (/download/i.test(message)) return "DOWNLOAD_FAILED";
 
   return "UNKNOWN_ERROR";

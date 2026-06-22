@@ -1,16 +1,9 @@
-import path from "node:path";
 import { db } from "@/lib/db";
 import type { CanvasProjectData } from "@/lib/projects";
-
-const STORAGE_ROOT = path.resolve(process.cwd(), "storage");
+export { isSafeAssetPath } from "@/lib/storage";
 
 export function assetUrl(id: string) {
   return `/api/assets/${encodeURIComponent(id)}`;
-}
-
-export function isSafeAssetPath(filePath: string) {
-  const resolved = path.resolve(filePath);
-  return resolved.startsWith(`${STORAGE_ROOT}${path.sep}`);
 }
 
 function isBlobUrl(value: unknown) {
