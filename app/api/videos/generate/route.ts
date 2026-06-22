@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   try {
     model = getModelDefinition(modelId);
     if (model.kind !== "video") throw new AppError("UNSUPPORTED_MODEL_OPTIONS", 400);
-    if (model.provider === "apimart" && !isApimartConfigured("video")) throw new AppError("MISSING_APIMART_VIDEO_KEY", 503);
+    if (model.provider === "apimart" && !isApimartConfigured("video", model.id)) throw new AppError(model.keyScope === "dev" ? "MISSING_APIMART_DEV_KEY" : "MISSING_APIMART_VIDEO_KEY", 503);
   } catch (error) {
     return errorResponse(error, error instanceof AppError ? error.status : 400);
   }

@@ -1,5 +1,18 @@
 # APIMart 接入约定
 
+## KeyDev 低成本验证模型
+
+- 图片：`gpt-image-2-official`，固定使用 `1:1`、`1k`、`quality: low`；统一任务 API 实测参考图生成 `credits_cost = 0.08508`，文生图目录口径为 `0.0488`。
+- 视频：`grok-imagine-1.5-video-apimart`，最低档使用 `16:9`、`480p`、`6` 秒；统一任务 API 实测 `credits_cost = 0.42`。
+- 两个模型读取服务端 `APIMART_KEY_DEV`；其他图片、视频模型继续分别读取 `APIMART_KEY_IMAGE`、`APIMART_KEY_VIDEO`。
+- Windows 环境优先使用 `APIMART_PROXY_URL` 或标准代理环境变量；未配置时自动读取系统代理。所有上游错误详情必须截断并去敏。
+
+## 节点资产
+
+- `POST /api/uploads` 接收 `file` 与 `projectId`，将文件写入服务端并创建 SQLite `Asset` 记录。
+- 返回的 `/api/assets/{id}` 是节点持久 URL，刷新和重启后仍可读取；画布项目不得保存浏览器 `blob:` URL。
+- `GET /api/assets/{id}` 只返回对应文件，不暴露数据库列表。
+
 ## 服务与鉴权
 
 - 基础地址：`https://api.apimart.ai/v1`

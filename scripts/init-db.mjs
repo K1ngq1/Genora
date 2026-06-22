@@ -29,6 +29,23 @@ db.exec(`
     "updatedAt" DATETIME NOT NULL,
     "lastOpenedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE TABLE IF NOT EXISTS "Asset" (
+    "id" TEXT NOT NULL PRIMARY KEY,
+    "kind" TEXT NOT NULL DEFAULT 'image',
+    "projectId" TEXT,
+    "nodeId" TEXT,
+    "taskId" TEXT,
+    "path" TEXT NOT NULL,
+    "originalName" TEXT,
+    "mimeType" TEXT NOT NULL,
+    "byteSize" INTEGER NOT NULL DEFAULT 0,
+    "source" TEXT NOT NULL DEFAULT 'upload',
+    "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
+    "updatedAt" DATETIME NOT NULL,
+    CONSTRAINT "Asset_projectId_fkey" FOREIGN KEY ("projectId") REFERENCES "Project" ("id") ON DELETE CASCADE ON UPDATE CASCADE
+  );
+  CREATE UNIQUE INDEX IF NOT EXISTS "Asset_path_key" ON "Asset"("path");
+  CREATE INDEX IF NOT EXISTS "Asset_projectId_idx" ON "Asset"("projectId");
 `);
 db.close();
 console.log(`SQLite initialized: ${dbPath}`);

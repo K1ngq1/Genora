@@ -1,10 +1,38 @@
 import assert from "node:assert/strict";
 import {
+  apimartKeyEnv,
   buildApimartImagePayload,
   buildApimartVideoPayload,
   extractApimartTaskId,
   parseApimartTask,
+  sanitizeApimartDetail,
 } from "../lib/apimart.ts";
+
+assert.equal(
+  sanitizeApimartDetail('Authentication failed token sk-secret-value Bearer abcdefghijklmnop'),
+  "Authentication failed token [REDACTED] Bearer [REDACTED]",
+);
+
+assert.equal(apimartKeyEnv("image", "gpt-image-2-official"), "APIMART_KEY_DEV");
+assert.equal(apimartKeyEnv("video", "grok-imagine-1.5-video-apimart"), "APIMART_KEY_DEV");
+assert.equal(apimartKeyEnv("video", "doubao-seedance-2.0"), "APIMART_KEY_VIDEO");
+
+assert.deepEqual(
+  buildApimartImagePayload({
+    model: "gpt-image-2-official",
+    prompt: "lowest-cost image test",
+    ratio: "1:1",
+    resolution: "1k",
+  }),
+  {
+    model: "gpt-image-2-official",
+    prompt: "lowest-cost image test",
+    size: "1:1",
+    resolution: "1k",
+    quality: "low",
+    n: 1,
+  },
+);
 
 assert.deepEqual(
   buildApimartImagePayload({
@@ -45,6 +73,23 @@ assert.deepEqual(
       { url: "https://upload.apimart.ai/start.png", role: "first_frame" },
       { url: "https://upload.apimart.ai/end.png", role: "last_frame" },
     ],
+  },
+);
+
+assert.deepEqual(
+  buildApimartVideoPayload({
+    model: "grok-imagine-1.5-video-apimart",
+    prompt: "lowest-cost video test",
+    ratio: "16:9",
+    resolution: "480p",
+    duration: 6,
+  }),
+  {
+    model: "grok-imagine-1.5-video-apimart",
+    prompt: "lowest-cost video test",
+    size: "16:9",
+    duration: 6,
+    quality: "480p",
   },
 );
 

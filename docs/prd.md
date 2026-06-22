@@ -1,5 +1,13 @@
 # Genora PRD
 
+## APIMart KeyDev 与节点资产持久化（已确认）
+
+- `APIMART_KEY_DEV` 仅用于低成本验证模型：图片 `gpt-image-2-official`（1:1、1K、low；文生图预计 0.0488，参考图实测 0.08508 积分）与视频 `grok-imagine-1.5-video-apimart`（16:9、480p、6 秒；实测 0.42 积分）。
+- APIMart 服务端请求支持显式代理环境变量和 Windows 系统代理；密钥、代理凭据均不得返回前端或写入日志。
+- 节点上传的图片、视频和首尾帧必须先写入服务端 `storage/uploads`，并在 SQLite `Asset` 表记录项目、文件路径、类型和大小；项目 JSON 只保存稳定的 `/api/assets/{id}` URL，禁止保存 `blob:` URL。
+- 资产数据库不提供前端列表或管理界面；本期不自动删除孤立资产，避免误删历史任务仍引用的文件。
+- 真实付费回归每轮只允许图片、视频各提交一次，不自动重试付费生成。
+
 ## APIMart 画布模型接入（已确认）
 
 - 图片节点新增 Gemini 2.5 Flash、GPT Image 2；视频节点新增 Seedance 2.0、Kling v3 Omni、HappyHorse 1.0，并保留现有模型。

@@ -14,6 +14,8 @@ import { isActiveTaskStatus } from "@/lib/task-status";
 import { mimeFromName } from "@/lib/storage";
 import { basename } from "node:path";
 import { readFile } from "node:fs/promises";
+import { errorDetail } from "@/lib/error-codes";
+import { sanitizeApimartDetail } from "@/lib/apimart";
 
 type ImageTaskParams = {
   size?: string;
@@ -52,7 +54,7 @@ async function executeImageTask(taskId: string) {
       const imageUrls: string[] = [];
       for (const filePath of params.referencePaths ?? []) {
         const bytes = await readFile(filePath);
-        imageUrls.push(await uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "image"));
+        imageUrls.push(await uploadApimartImage(new Blob([new Uint8Array(bytes)], { type: mimeFromName(filePath) }), basename(filePath), "image", model));
       }
       const remoteTaskId = await createApimartImage({
         model,
@@ -63,7 +65,12 @@ async function executeImageTask(taskId: string) {
       });
       return db.task.update({ where: { id: task.id }, data: { status: "queued", remoteTaskId } });
     } catch (error) {
-      return db.task.update({ where: { id: task.id }, data: { status: "failed", error: errorMessage(error) } });
+      const errorCode = errorMessage(error);
+      const providerErrorDetail = sanitizeApimartDetail(errorDetail(error));
+      return db.task.update({
+        where: { id: task.id },
+        data: { status: "failed", error: errorCode, params: JSON.stringify({ ...params, errorCode, providerErrorDetail }) },
+      });
     }
   }
 

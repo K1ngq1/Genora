@@ -1,13 +1,18 @@
 import { db } from "@/lib/db";
+import { repairLegacyAssetUrls } from "@/lib/assets";
 import { normalizeProjectName, parseCanvasData, publicProject } from "@/lib/projects";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
   const project = await db.project.findUnique({ where: { id } });
   if (!project) return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
+  const repaired = await repairLegacyAssetUrls(parseCanvasData(project.canvasData));
   const opened = await db.project.update({
     where: { id },
-    data: { lastOpenedAt: new Date() },
+    data: {
+      lastOpenedAt: new Date(),
+      ...(repaired.changed ? { canvasData: JSON.stringify(repaired.canvasData) } : {}),
+    },
   });
   return Response.json(publicProject(opened));
 }

@@ -9,12 +9,13 @@
 ## 模型选择
 
 - 图片：`gpt-image-2-official`，默认 `1:1`、`1k`、`low`。APIMart 公开价格页中，该组合低于现有 `gpt-image-2` 1K 档。
-- 视频：`grok-imagine-1.5-video-apimart`，默认 `16:9`、`720p`、`6s`。它是当前公开价格目录中的最低价视频生成档。
+- 视频：`grok-imagine-1.5-video-apimart`，默认 `16:9`、`480p`、`6s`。它是当前公开价格目录中的最低价视频生成档。
 - 仅这两个测试模型读取 `APIMART_KEY_DEV`；已有模型继续读取图片或视频专用 Key，避免改变现有生产配置。
 
 ## APIMart 适配
 
 - Provider 请求层按模型选择 Key，不向日志、数据库或前端返回密钥。
+- Node/Next.js 自动读取 `APIMART_PROXY_URL`、标准代理环境变量或 Windows 系统代理，避免系统浏览器可联网但服务端直连超时。
 - 为两个模型生成官方文档要求的请求体：图片增加 `quality: low`；视频使用 `size`、`quality`、`duration`。
 - 保留统一 `/v1/tasks/{task_id}` 轮询，并兼容 `submitted`、`queued`、`processing`、`completed`、`failed`。
 - 上游失败时保存错误代码和经过截断、去敏后的详情，避免再次只出现 `UNKNOWN_ERROR`。

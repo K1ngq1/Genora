@@ -30,4 +30,23 @@ model Project {
   createdAt      DateTime @default(now())
   updatedAt      DateTime @updatedAt
   lastOpenedAt   DateTime @default(now())
+  assets         Asset[]
+}
+
+model Asset {
+  id           String   @id @default(cuid())
+  kind         String   @default("image")
+  projectId    String?
+  nodeId       String?
+  taskId       String?
+  path         String   @unique
+  originalName String?
+  mimeType     String
+  byteSize     Int      @default(0)
+  source       String   @default("upload")
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+  project      Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
+
+  @@index([projectId])
 }

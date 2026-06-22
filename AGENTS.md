@@ -60,3 +60,46 @@
 - 以后新增或修改的代码文件统一使用 UTF-8 编码保存。
 - 修改现有文件时，应保持或转换为 UTF-8 编码，避免使用 ANSI、GBK 等其他编码。
 - 保存后如发现中文乱码，应先检查并修正文件编码，再继续修改代码。
+
+## 8.Code Reuse and Refactoring Rules
+
+The codebase is becoming large, so future changes must prioritize reuse and maintainability.
+
+When implementing new features or fixing bugs:
+
+1. Before writing new code, search the existing codebase for similar logic, components, hooks, services, API wrappers, utility functions, constants, and types.
+
+2. Do not duplicate existing logic. If similar logic already exists, reuse it directly or extract it into a shared module.
+
+3. If the same logic appears in two or more places, refactor it into a reusable function, hook, component, service, or utility module.
+
+4. Keep reusable code in appropriate shared locations, for example:
+
+   * `src/lib/`
+   * `src/utils/`
+   * `src/services/`
+   * `src/hooks/`
+   * `src/components/`
+   * `src/types/`
+   * `src/constants/`
+
+5. Do not create large single files. Split large files by responsibility.
+
+6. Do not add a new API request implementation if an existing API client, service, or request helper can be extended.
+
+7. Do not hardcode repeated strings, model names, API paths, status values, or configuration values. Put them into shared constants or config files.
+
+8. Prefer small, focused modules over large mixed-purpose files.
+
+9. Before completing a task, check whether the new code introduced duplication. If duplication exists, refactor it before finishing.
+
+10. When modifying existing behavior, preserve the current public API, data shape, and UI behavior unless the task explicitly requires a change.
+
+11. If refactoring is needed but risky, first explain the refactor plan, then make small safe changes.
+
+12. After changes, summarize:
+
+* which existing code was reused;
+* which duplicate logic was removed;
+* which shared modules were added or updated;
+* which files were changed.
