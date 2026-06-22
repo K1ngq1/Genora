@@ -33,6 +33,8 @@ export default function ProjectsPage() {
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState(true);
   const [editingId, setEditingId] = useState<string>();
+  const [deletingProject, setDeletingProject] = useState<ProjectSummary>();
+  const [deleteBusy, setDeleteBusy] = useState(false);
   const [name, setName] = useState("");
   const [error, setError] = useState("");
 
@@ -82,6 +84,25 @@ export default function ProjectsPage() {
     await loadProjects();
   };
 
+  const deleteProject = async () => {
+    if (!deletingProject || deleteBusy) return;
+    setDeleteBusy(true);
+    try {
+      const response = await fetch(`/api/projects/${deletingProject.id}`, { method: "DELETE" });
+      if (!response.ok) throw new Error("DELETE_FAILED");
+      if (window.localStorage.getItem("genora-current-project") === deletingProject.id) {
+        window.localStorage.removeItem("genora-current-project");
+      }
+      setProjects((items) => items.filter((project) => project.id !== deletingProject.id));
+      setDeletingProject(undefined);
+      setError("");
+    } catch {
+      setError("项目删除失败，请稍后重试");
+    } finally {
+      setDeleteBusy(false);
+    }
+  };
+
   return (
     <main className="projects-page">
       <header className="projects-header">
@@ -122,7 +143,10 @@ export default function ProjectsPage() {
                 <h2>{project.name}</h2>
                 <p>{project.requiresRename ? "等待重新命名" : `更新于 ${formatDate(project.updatedAt)}`}</p>
               </div>
-              <button aria-label={`重命名 ${project.name}`} onClick={() => startRename(project)}>重命名</button>
+              <div className="project-card-actions">
+                <button aria-label={`重命名 ${project.name}`} onClick={() => startRename(project)}>重命名</button>
+                <button className="danger" aria-label={`删除 ${project.name}`} onClick={() => setDeletingProject(project)}>删除</button>
+              </div>
             </div>
           </article>
         ))}
@@ -143,6 +167,21 @@ export default function ProjectsPage() {
             <div>
               <button onClick={() => setEditingId(undefined)}>取消</button>
               <button className="primary" onClick={() => void renameProject()}>保存名称</button>
+            </div>
+          </section>
+        </div>
+      )}
+
+      {deletingProject && (
+        <div className="projects-modal-backdrop" onMouseDown={() => { if (!deleteBusy) setDeletingProject(undefined); }}>
+          <section className="projects-modal delete-modal" onMouseDown={(event) => event.stopPropagation()}>
+            <h2>确认删除项目</h2>
+            <p>“{deletingProject.name}”将从作品库中永久移除，此操作无法撤销。</p>
+            <div>
+              <button disabled={deleteBusy} onClick={() => setDeletingProject(undefined)}>取消</button>
+              <button className="danger-confirm" disabled={deleteBusy} onClick={() => void deleteProject()}>
+                {deleteBusy ? "正在删除…" : "确认删除"}
+              </button>
             </div>
           </section>
         </div>

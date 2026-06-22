@@ -3,6 +3,12 @@ import path from "node:path";
 
 const ROOT = path.join(process.cwd(), "storage");
 
+export function isSafeAssetPath(filePath: string) {
+  const resolved = path.resolve(filePath);
+  const root = path.resolve(ROOT);
+  return resolved.startsWith(`${root}${path.sep}`);
+}
+
 export async function saveBuffer(folder: "images" | "videos" | "uploads", name: string, data: Buffer) {
   const dir = path.join(ROOT, folder);
   await mkdir(dir, { recursive: true });

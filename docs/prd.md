@@ -1,5 +1,16 @@
 # Genora PRD
 
+## 全模型比例与画质（已确认，2026-06-22）
+
+- 图片节点的显式画质仅提供 `1K`、`2K`；不支持显式画质选择的模型显示“自适应”。
+- `aspectRatio` 与 `quality` 独立传输，提高画质不得改变用户选择的 `1:1`、`4:3`、`3:4`、`16:9`、`9:16` 比例。
+- 4:3 使用 `1184×864`（1K）、`2368×1728`（2K）；3:4 使用 `864×1184`（1K）、`1728×2368`（2K）。规格依据 [Google Gemini 图片生成文档](https://ai.google.dev/gemini-api/docs/image-generation?hl=zh-cn)。
+- Agnes 图片提交最终像素 `size`；Agnes 视频提交同一比例的 `width/height`；APIMart 转换为各模型原生比例与画质字段。
+- 仅当上游明确返回尺寸、分辨率或显存相关错误时自动降低一个画质档位；鉴权、余额、限流、审核和普通网络错误不触发降级。
+- 异步任务只有在上游任务明确失败且错误属于画质类时才重新提交；保持同一比例并复用本地任务记录。
+- 参考图文件和尺寸保持不变，不裁切、不拉伸、不补边。
+- 节点、提示词面板、模型菜单和画质弹层统一使用中性灰透明玻璃视觉。
+
 ## APIMart KeyDev 与节点资产持久化（已确认）
 
 - `APIMART_KEY_DEV` 仅用于低成本验证模型：图片 `gpt-image-2-official`（1:1、1K、low；文生图预计 0.0488，参考图实测 0.08508 积分）与视频 `grok-imagine-1.5-video-apimart`（16:9、480p、6 秒；实测 0.42 积分）。
@@ -12,10 +23,13 @@
 
 - 图片节点新增 Gemini 2.5 Flash、GPT Image 2；视频节点新增 Seedance 2.0、Kling v3 Omni、HappyHorse 1.0，并保留现有模型。
 - 新建图片节点默认 GPT Image 2（1:1、1K），新建视频节点默认 Kling v3 Omni（16:9、720p、5 秒）。
-- 模型选择位于比例/画质按钮左侧，菜单按 APIMart 与现有模型分组并支持滚动；模型行展示支持的画质和时长。
+- 模型选择位于比例/画质按钮左侧，所有可用模型统一平铺且支持滚动，不显示 Provider 分组或来源标签；模型行展示支持的画质和时长。
 - 图片画质按模型原生档位显示；视频统一展示 480p、720p、1080p，不支持的档位禁用。画布保留 1:1、4:3、3:4、16:9、9:16 五种比例，不支持的比例禁用。
-- 生成按钮左侧实时显示预计积分；现有 Agnes/Ideogram 模型通过 `free` 字段显示 `Free`。任务完成后记录 APIMart 返回的实际积分。
-- 比例/画质弹层使用透明深色玻璃、背景模糊、细描边和轻紫选中态，与画布其他节点保持一致。
+- 生成按钮左侧实时显示预计积分；Agnes 模型通过 `free` 字段显示 `Free`。任务完成后记录 APIMart 返回的实际积分。
+- Ideogram 图片模型及其本地推理接入已移除。
+- 节点、模型菜单和比例/画质弹层统一使用黑色透明玻璃、背景模糊、细描边和中性选中态。
+- 已上传与生成完成的图片、视频节点根据素材真实宽高比自适应尺寸，并同步更新画布连接点。
+- 作品库允许通过二次确认删除项目存档；数据库关联记录级联删除，本期保留本地素材文件以避免误删共享或历史任务素材。
 - 首期仅开放比例、画质、时长、参考图及模型支持时的反向提示词，不开放音频、多镜头和参考视频。
 - APIMart 密钥仅保存在服务端环境变量中；参考图先上传 APIMart，结果完成后立即下载到 Genora 本地存储。
 
@@ -56,12 +70,16 @@ Genora 是一个无限画布式 AI 创作工作台，目标是在同一个画布
   - 默认帧率：24 FPS。
   - 总帧数按 Agnes Video V2.0 要求对齐为 `8n + 1`。
   - 总帧数上限：441 帧。
+  - 本地参考图仍保存在 `storage/uploads`，提交 Agnes 前由服务端上传到 Supabase Storage 公共 Bucket `agnes-inputs`。
+  - Agnes 只接收经过后端预检的公网 HTTPS 图片 URL，不接收本地路径、localhost URL 或 Data URL。
+  - 单图写入 `image`；多图或含尾帧时按首帧、普通参考图、尾帧顺序写入 `extra_body.image`。
+  - 公网 URL 必须返回 HTTP 200，Content-Type 只能是 JPEG、PNG 或 WebP，并拒绝本机、内网、保留 IP 及不安全重定向。
 - `docs/api/` 中的 KIE/GPT Image 2 文档仅作为第三方 API 参考，不等同于当前 Agnes 接口。
 
 ## 待确认问题
 
 - 是否正式从本地 SQLite/Prisma 迁移到 Supabase。
-- Supabase 项目的表结构、RLS 策略和 Storage Bucket 命名。
+- Supabase 项目的正式数据库表结构和 RLS 策略。
 - 是否部署到 Vercel、Supabase Edge Functions 或其他平台。
 - 是否需要接入登录后用户 ID，并替换当前临时用户名 `Genora`。
 - 是否保留 KIE/GPT Image 2 API 作为备用图片模型或只使用 Agnes Image 2.1 Flash。
@@ -121,11 +139,12 @@ Genora 是一个无限画布式 AI 创作工作台，目标是在同一个画布
 
 ## 视频任务同步超时
 
-- 视频任务同步超过 `AGNES_VIDEO_MAX_PROCESSING_SECONDS` 后，本地任务更新为 `failed`。
+- 视频任务同步超过 `AGNES_VIDEO_MAX_PROCESSING_SECONDS` 后，本地任务更新为可恢复的 `timeout`。
 - 超时任务的 `error` 保存为 `Video task timeout`，`errorCode` 对外返回 `TIMEOUT`。
-- 超时落库时保留最后一次 `lastRemoteStatus`，并将 `canResume` 更新为 `false`。
-- `failed`、`completed`、`cancelled` 等终态任务不再进入后台视频同步扫描。
-- 前端对 `failed + TIMEOUT` 状态显示“已超时”。
+- 超时落库时保留 `remoteTaskId`、最后一次 `lastRemoteStatus` 和公网参考图 URL，并将 `canResume` 更新为 `true`。
+- 超时任务不自动转换为 `failed`；用户点击继续查询后重新进入后台轮询。
+- Agnes 明确返回失败时才标记为 `failed`；提交阶段未取得上游 task ID 的超时不可伪装成可恢复任务。
+- 前端对 `timeout + TIMEOUT` 状态显示“已超时”和继续查询入口。
 
 ## 节点右键、打组与框选
 

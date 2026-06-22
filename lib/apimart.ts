@@ -2,7 +2,6 @@ import { AppError } from "./error-codes.ts";
 import { apimartHttpRequest } from "./apimart-http.ts";
 import {
   APIMART_API_BASE,
-  APIMART_DEV_IMAGE_MODEL,
   APIMART_DEV_VIDEO_MODEL,
   isApimartDevModel,
 } from "./apimart-models.ts";
@@ -53,7 +52,6 @@ export function buildApimartImagePayload(options: ImagePayloadOptions) {
     prompt: options.prompt,
     size: options.ratio,
     resolution: options.resolution,
-    ...(options.model === APIMART_DEV_IMAGE_MODEL ? { quality: "low" } : {}),
     n: 1,
     ...(options.imageUrls?.length ? { image_urls: options.imageUrls } : {}),
   };

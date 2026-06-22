@@ -30,18 +30,13 @@
 - **使用的模块**:
   - `app/api/videos/generate/route.ts`
 
-### HF_TOKEN (Hugging Face Token)
-- **用途**: Hugging Face gated 模型访问权限（Ideogram 4 本地推理需要）
-- **使用的模块**:
-  - `lib/ideogram.ts`
-  - `app/page.tsx`
-- **注意**: 需先在 Hugging Face 接受模型协议
-
-### IDEOGRAM_API_KEY / MAGIC_PROMPT_API_KEY
-- **用途**: Ideogram Magic Prompt 扩写功能
-- **使用的模块**:
-  - `lib/ideogram.ts`
-- **类型**: 二选一
+### SUPABASE_SERVICE_ROLE_KEY
+- **用途**: 服务端将 Agnes 输入图片上传到 Supabase Storage
+- **类型**: Supabase service-role key，仅允许服务端读取
+- **Bucket**: `SUPABASE_AGNES_BUCKET`，默认值为 `agnes-inputs`
+- **配套变量**: `NEXT_PUBLIC_SUPABASE_URL`
+- **初始化命令**: `npm run storage:setup`
+- **注意**: 禁止添加 `NEXT_PUBLIC_` 前缀，禁止写入日志或提交仓库
 
 ## 安全提醒
 

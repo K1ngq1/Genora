@@ -7,6 +7,7 @@ import { scheduleImageTask } from "@/lib/image-task-runner";
 import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
+import { getImageSize, imageQualityFallbacks, normalizeImageQuality } from "@/lib/generation-quality";
 
 const DEFAULT_MODEL = "gpt-image-2";
 const MAX_REFERENCE_SIZE = 20 * 1024 * 1024;
@@ -37,12 +38,15 @@ export async function POST(request: Request) {
     if (model.provider === "agnes" && !isAgnesConfigured("image")) throw new AppError("MISSING_AGNES_API_KEY", 503);
 
     const normalized = normalizeModelOptions(model.id, {
-      ratio: String(body.ratio ?? (String(body.size ?? "").includes(":") ? body.size : model.defaultRatio)),
-      resolution: String(body.resolution ?? body.quality ?? model.defaultResolution),
+      ratio: String(body.aspectRatio ?? body.ratio ?? (String(body.size ?? "").includes(":") ? body.size : model.defaultRatio)),
+      resolution: String(body.quality ?? body.resolution ?? model.defaultResolution),
       duration: 0,
     });
+    const actualQuality = normalized.resolution === "adaptive" ? "1k" : normalizeImageQuality(normalized.resolution);
+    const qualityFallbacks = imageQualityFallbacks(actualQuality);
+    const finalSize = getImageSize(normalized.ratio, actualQuality);
     const sourceUrls = Array.isArray(body.referenceUrls) ? body.referenceUrls.map(String).filter(Boolean) : [];
-    if (sourceUrls.length && !model.supportsReferences) throw new AppError("IDEOGRAM_IMG2IMG_UNSUPPORTED", 400);
+    if (sourceUrls.length && !model.supportsReferences) throw new AppError("UNSUPPORTED_MODEL_OPTIONS", 400);
     const referencePaths: string[] = [];
     for (const url of sourceUrls.slice(0, 16)) referencePaths.push(await persistReference(url, request.url));
     const estimatedCredits = estimateCredits({ model: model.id, resolution: normalized.resolution, duration: 0, hasImageInput: referencePaths.length > 0 });
@@ -56,8 +60,13 @@ export async function POST(request: Request) {
           provider: model.provider,
           model: model.id,
           ratio: normalized.ratio,
+          aspectRatio: normalized.ratio,
           resolution: normalized.resolution,
-          size: String(body.size ?? "1024x1024"),
+          quality: normalized.resolution,
+          actualQuality,
+          qualityFallbacks,
+          finalSize,
+          size: finalSize,
           seed: Number(body.seed ?? 0),
           referencePaths,
           estimatedCredits,

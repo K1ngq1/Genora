@@ -43,3 +43,11 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
   const project = await db.project.update({ where: { id }, data });
   return Response.json(publicProject(project));
 }
+
+export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const { id } = await context.params;
+  const existing = await db.project.findUnique({ where: { id }, select: { id: true } });
+  if (!existing) return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
+  await db.project.delete({ where: { id } });
+  return new Response(null, { status: 204 });
+}

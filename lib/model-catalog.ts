@@ -1,9 +1,9 @@
 import { APIMART_DEV_IMAGE_MODEL, APIMART_DEV_VIDEO_MODEL } from "./apimart-models.ts";
 
 export type GenerationKind = "image" | "video";
-export type ModelProvider = "apimart" | "agnes" | "ideogram";
+export type ModelProvider = "apimart" | "agnes";
 export type CanvasRatio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
-export type CanvasResolution = "480p" | "720p" | "1080p" | "1k" | "2k" | "4k";
+export type CanvasResolution = "480p" | "720p" | "1080p" | "1k" | "2k" | "4k" | "adaptive";
 
 type FreePricing = { type: "free" };
 type FixedPricing = {
@@ -42,21 +42,21 @@ const ALL_RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 export const MODEL_CATALOG: ModelDefinition[] = [
   {
     id: "gemini-2.5-flash-image-preview", label: "Gemini 2.5 Flash", kind: "image", provider: "apimart", free: false,
-    ratios: ALL_RATIOS, resolutions: ["1k"], defaultRatio: "1:1", defaultResolution: "1k",
+    ratios: ALL_RATIOS, resolutions: ["adaptive"], defaultRatio: "1:1", defaultResolution: "adaptive",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
-    pricing: { type: "fixed", credits: { "1k": 0.125 } },
+    pricing: { type: "fixed", credits: { "adaptive": 0.125 } },
   },
   {
     id: "gpt-image-2", label: "GPT Image 2", kind: "image", provider: "apimart", free: false,
-    ratios: ALL_RATIOS, resolutions: ["1k", "2k", "4k"], defaultRatio: "1:1", defaultResolution: "1k",
+    ratios: ALL_RATIOS, resolutions: ["1k", "2k"], defaultRatio: "1:1", defaultResolution: "1k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
     pricing: { type: "fixed", credits: { "1k": 0.06, "2k": 0.12, "4k": 0.18 } },
   },
   {
     id: APIMART_DEV_IMAGE_MODEL, label: "GPT Image 2 Official · Dev", kind: "image", provider: "apimart", keyScope: "dev", free: false,
-    ratios: ["1:1"], resolutions: ["1k"], defaultRatio: "1:1", defaultResolution: "1k",
+    ratios: ["1:1"], resolutions: ["adaptive"], defaultRatio: "1:1", defaultResolution: "adaptive",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
-    pricing: { type: "fixed", credits: { "1k": 0.0488 }, inputCredits: { "1k": 0.08508 } },
+    pricing: { type: "fixed", credits: { "adaptive": 0.0488 }, inputCredits: { "adaptive": 0.08508 } },
   },
   {
     id: "doubao-seedance-2.0", label: "Seedance 2.0", kind: "video", provider: "apimart", free: false,
@@ -88,17 +88,7 @@ export const MODEL_CATALOG: ModelDefinition[] = [
   },
   {
     id: "agnes-image-2.1-flash", label: "Agnes Image 2.1 Flash", kind: "image", provider: "agnes", free: true,
-    ratios: ALL_RATIOS, resolutions: ["720p", "1k", "2k", "4k"], defaultRatio: "1:1", defaultResolution: "2k",
-    supportsStartFrame: false, supportsEndFrame: false, supportsReferences: false, supportsNegativePrompt: false, pricing: { type: "free" },
-  },
-  {
-    id: "ideogram-4-nf4", label: "Ideogram 4 nf4", kind: "image", provider: "ideogram", free: true,
-    ratios: ALL_RATIOS, resolutions: ["720p", "1k", "2k", "4k"], defaultRatio: "1:1", defaultResolution: "2k",
-    supportsStartFrame: false, supportsEndFrame: false, supportsReferences: false, supportsNegativePrompt: false, pricing: { type: "free" },
-  },
-  {
-    id: "ideogram-4-fp8", label: "Ideogram 4 fp8", kind: "image", provider: "ideogram", free: true,
-    ratios: ALL_RATIOS, resolutions: ["720p", "1k", "2k", "4k"], defaultRatio: "1:1", defaultResolution: "2k",
+    ratios: ALL_RATIOS, resolutions: ["1k", "2k"], defaultRatio: "1:1", defaultResolution: "2k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: false, supportsNegativePrompt: false, pricing: { type: "free" },
   },
   {
@@ -143,7 +133,7 @@ export function estimateCredits(options: { model: string; resolution: string; du
 }
 
 export function modelCapabilityLabel(model: ModelDefinition) {
-  const resolution = model.resolutions.map((item) => item.toUpperCase()).join(" / ");
+  const resolution = model.resolutions.map((item) => item === "adaptive" ? "自适应" : item.toUpperCase()).join(" / ");
   if (model.kind === "image") return resolution;
   return `${resolution} · ${model.minDuration}-${model.maxDuration}s`;
 }

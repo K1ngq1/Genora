@@ -130,3 +130,27 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
 .generation-cost{margin-left:auto!important;color:#d7ccff!important;font-size:11px!important;font-weight:800;white-space:nowrap}
 .generation-cost.free{color:#91e6b8!important}
 .generation-cost+.generate-button{margin-left:0}
+
+/* Unified neutral glass surfaces and intrinsic media sizing. */
+.canvas-node{border:1px solid #ffffff1c;background:linear-gradient(145deg,#111113dc,#030304c2);box-shadow:inset 0 1px #ffffff12,0 18px 56px #0009;backdrop-filter:blur(24px) saturate(115%);transition:width .24s,border-color .2s,box-shadow .2s}
+.canvas-node:hover{border-color:#ffffff42;box-shadow:inset 0 1px #ffffff26,0 24px 70px #000c}
+.canvas-node.media-image,.canvas-node.media-video{background:linear-gradient(145deg,#0c0c0edc,#000000c7);border-color:#ffffff2b}
+.node-badge{background:#08080ade;box-shadow:inset 0 1px #ffffff10,0 12px 32px #000a;backdrop-filter:blur(22px)}
+.canvas-node.has-media{min-height:0}
+.canvas-node.has-media .node-body{aspect-ratio:var(--media-aspect,1)}
+.canvas-node.has-media>.node-body>img,.canvas-node.has-media>.node-body>video{width:100%;height:100%;object-fit:contain}
+.model-menu{border-color:#ffffff20;background:linear-gradient(145deg,#0f0f11e8,#010102dc);box-shadow:inset 0 1px #ffffff13,0 24px 68px #000d;backdrop-filter:blur(30px) saturate(115%)}
+.model-menu>button{display:flex;width:100%;align-items:center;justify-content:space-between;gap:12px;margin:2px 0;padding:11px;border:1px solid transparent;border-radius:12px;background:transparent;color:#ffffffc8;text-align:left;cursor:pointer}
+.model-menu>button:hover{background:#ffffff0b;color:#fff}
+.model-menu>button.selected{border-color:#ffffff28;background:#ffffff10;color:#fff;box-shadow:inset 0 1px #ffffff12}
+.model-menu>button span{display:flex;min-width:0;flex-direction:column;gap:4px}
+.node-options{border-color:#ffffff20;background:linear-gradient(145deg,#101012e8,#020203dc);box-shadow:inset 0 1px #ffffff14,0 20px 56px #000c;backdrop-filter:blur(30px) saturate(115%)}
+.prompt-pop{background:linear-gradient(145deg,#101012ed,#020203e3);border-color:#ffffff20;backdrop-filter:blur(30px) saturate(115%)}
+
+/* Neutral gray glass treatment shared by nodes and their attached panels. */
+.canvas-node,.canvas-node.media-image,.canvas-node.media-video{border-color:#ffffff2b;background:linear-gradient(145deg,#7b7b8040,#32323638);box-shadow:inset 0 1px #ffffff26,0 20px 60px #000a;backdrop-filter:blur(28px) saturate(105%)}
+.canvas-node:hover{border-color:#ffffff52;box-shadow:inset 0 1px #ffffff36,0 24px 72px #000b}
+.node-badge,.node-upload{background:#55555b99;border-color:#ffffff2d;backdrop-filter:blur(24px) saturate(105%)}
+.prompt-pop,.model-menu,.node-options,.motion-popover{border-color:#ffffff2b;background:linear-gradient(145deg,#66666bbb,#303034b8);box-shadow:inset 0 1px #ffffff27,0 22px 64px #000b;backdrop-filter:blur(30px) saturate(105%)}
+.prompt-input,.prompt-toolbar{background:#ffffff0b}
+.model-picker.open .model-trigger,.settings-details.open .settings-trigger,.model-menu>button.selected,.quality-options .selected,.ratio-options .selected{border-color:#ffffff3d!important;background:#ffffff18!important;color:#fff;box-shadow:inset 0 1px #ffffff22}
