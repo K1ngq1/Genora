@@ -113,6 +113,31 @@ assert.deepEqual(
 
 assert.deepEqual(
   buildApimartVideoPayload({
+    model: "kling-v3-omni",
+    prompt: "first last frame test",
+    ratio: "16:9",
+    resolution: "720p",
+    duration: 5,
+    startFrameUrl: "https://upload.apimart.ai/start.png",
+    endFrameUrl: "https://upload.apimart.ai/end.png",
+    referenceUrls: ["https://upload.apimart.ai/ref.png"],
+  }),
+  {
+    model: "kling-v3-omni",
+    prompt: "first last frame test",
+    mode: "std",
+    duration: 5,
+    aspect_ratio: "16:9",
+    image_with_roles: [
+      { url: "https://upload.apimart.ai/start.png", role: "first_frame" },
+      { url: "https://upload.apimart.ai/end.png", role: "last_frame" },
+      { url: "https://upload.apimart.ai/ref.png", role: "reference" },
+    ],
+  },
+);
+
+assert.deepEqual(
+  buildApimartVideoPayload({
     model: "happyhorse-1.0",
     prompt: "test video",
     ratio: "9:16",

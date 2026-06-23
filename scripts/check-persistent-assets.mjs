@@ -6,7 +6,7 @@ const uploadRoute = await readFile("app/api/uploads/route.ts", "utf8");
 const assetRoute = await readFile("app/api/assets/[id]/route.ts", "utf8").catch(() => "");
 const projectRoute = await readFile("app/api/projects/[id]/route.ts", "utf8");
 const assets = await readFile("lib/assets.ts", "utf8");
-const page = await readFile("app/page.tsx", "utf8");
+const page = await readFile("app/workspace/page.tsx", "utf8");
 const packageJson = await readFile("package.json", "utf8");
 const initDb = await readFile("scripts/init-db.mjs", "utf8");
 

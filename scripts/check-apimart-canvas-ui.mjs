@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/page.tsx", "utf8");
+const page = await readFile("app/workspace/page.tsx", "utf8");
 const css = await readFile("app/workflow.css", "utf8");
 
 assert.match(page, /modelsForKind/);
@@ -9,7 +9,7 @@ assert.match(page, /modelCapabilityLabel/);
 assert.match(page, /estimateCredits/);
 assert.match(page, /materializeReferenceUrl/);
 assert.match(page, /APIMART_INSUFFICIENT_CREDITS/);
-assert.match(page, /className="model-trigger"/);
+assert.match(page, /className="model-trigger(?: [^"]+)?"/);
 assert.match(page, /className="model-menu"/);
 assert.match(page, /availableModels\.map/);
 assert.doesNotMatch(page, /现有模型/);
