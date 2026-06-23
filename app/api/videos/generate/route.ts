@@ -100,6 +100,7 @@ export async function POST(request: Request) {
 
   if (startFramePath && !model.supportsStartFrame) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
   if (endFramePath && !model.supportsEndFrame) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
+  if (model.provider === "apimart" && endFramePath && !startFramePath) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
   if (referenceImages.length && !model.supportsReferences) return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);
   if (model.id === "happyhorse-1.0" && startFramePath && referenceImages.length > 1) {
     return errorResponse(new AppError("UNSUPPORTED_MODEL_OPTIONS", 400), 400);

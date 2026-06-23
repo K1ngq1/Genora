@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/page.tsx", "utf8");
+const page = await readFile("app/workspace/page.tsx", "utf8");
 const css = await readFile("app/workflow.css", "utf8");
 
 assert.match(page, /onNodeContextMenu=/);

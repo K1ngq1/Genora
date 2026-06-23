@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 const files = {
   schema: await readFile("prisma/schema.prisma", "utf8"),
   package: await readFile("package.json", "utf8"),
-  page: await readFile("app/page.tsx", "utf8"),
+  page: await readFile("app/workspace/page.tsx", "utf8"),
   projectsApi: await readFile("app/api/projects/route.ts", "utf8").catch(() => ""),
   projectApi: await readFile("app/api/projects/[id]/route.ts", "utf8").catch(() => ""),
   uploadApi: await readFile("app/api/uploads/route.ts", "utf8").catch(() => ""),

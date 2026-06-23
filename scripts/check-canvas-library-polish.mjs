@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 import { getAdaptiveMediaLayout } from "../lib/node-media-layout.ts";
 
 const [page, css, catalog, runner, projectApi, projectsPage] = await Promise.all([
-  readFile("app/page.tsx", "utf8"),
+  readFile("app/workspace/page.tsx", "utf8"),
   readFile("app/workflow.css", "utf8"),
   readFile("lib/model-catalog.ts", "utf8"),
   readFile("lib/image-task-runner.ts", "utf8"),

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const canvas = await readFile("app/page.tsx", "utf8");
+const canvas = await readFile("app/workspace/page.tsx", "utf8");
 const projects = await readFile("app/projects/page.tsx", "utf8");
 const projectsCss = await readFile("app/projects/projects.css", "utf8");
 

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/page.tsx", "utf8");
+const page = await readFile("app/workspace/page.tsx", "utf8");
 const route = await readFile("app/api/videos/generate/route.ts", "utf8");
 
 const checks = [
@@ -8,6 +8,7 @@ const checks = [
   ["end frame field matches route", page.includes('appendImageFromUrl(form, "endFrame"') && route.includes('form.get("endFrame")')],
   ["reference image field matches route", page.includes('appendImageFromUrl(form, "referenceImages"') && route.includes('form.getAll("referenceImages")')],
   ["obsolete singular field removed", !page.includes('appendImageFromUrl(form, "referenceImage"')],
+  ["APIMart end frame requires start frame", route.includes('model.provider === "apimart" && endFramePath && !startFramePath')],
 ];
 
 const failed = checks.filter(([, passed]) => !passed);

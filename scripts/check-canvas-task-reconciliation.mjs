@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/page.tsx", "utf8");
+const page = await readFile("app/workspace/page.tsx", "utf8");
 
 const checks = [
   ["loaded task reconciliation", page.includes("reconcileLoadedTaskNodes")],
