@@ -10,12 +10,14 @@ export type CanvasProjectData = {
   nodes: unknown[];
   edges: unknown[];
   viewport: CanvasViewport;
+  libraryItems: unknown[];
 };
 
 export const EMPTY_CANVAS_DATA: CanvasProjectData = {
   nodes: [],
   edges: [],
   viewport: { x: 0, y: 0, zoom: 1 },
+  libraryItems: [],
 };
 
 export function normalizeProjectName(value: unknown) {
@@ -39,6 +41,7 @@ export function parseCanvasData(value: unknown): CanvasProjectData {
   return {
     nodes: Array.isArray(candidate.nodes) ? candidate.nodes : [],
     edges: Array.isArray(candidate.edges) ? candidate.edges : [],
+    libraryItems: Array.isArray(candidate.libraryItems) ? candidate.libraryItems : [],
     viewport: viewport
       && Number.isFinite(viewport.x)
       && Number.isFinite(viewport.y)

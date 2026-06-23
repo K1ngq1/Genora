@@ -16,7 +16,7 @@ import "./home.css";
 
 type HomeMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type HomeMode = Extract<GenerationKind, "image" | "video">;
-type IconName = "home" | "folder" | "settings" | "nodes" | "mic" | "image" | "upload" | "spark" | "send";
+type IconName = "home" | "folder" | "settings" | "nodes" | "mic" | "image" | "upload" | "spark" | "send" | "box";
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
 type SpeechRecognitionLike = {
@@ -105,6 +105,12 @@ function Icon({ name }: { name: IconName }) {
     upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
     spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
     send: <path d="m22 2-7 20-4-9-9-4Z" />,
+    box: (
+      <>
+        <path d="m12 3 7 4v8l-7 4-7-4V7Z" />
+        <path d="m5 7 7 4 7-4M12 11v8" />
+      </>
+    ),
   };
 
   return (
@@ -119,7 +125,7 @@ function HomePageContent() {
   const searchParams = useSearchParams();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mode, setMode] = useState<HomeMode>("image");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -245,17 +251,17 @@ function HomePageContent() {
   return (
     <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <Link className="home-sidebar-logo logo-button" href="/" aria-label="首页">
+        <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
           <img src={HOME_LOGO} alt="" />
           <span>Genora</span>
         </Link>
         <nav aria-label="主导航">
-          <Link className="logo-button active" href="/" title="首页"><Icon name="home" /><span>首页</span></Link>
-          <Link className="logo-button" href="/database" title="数据库"><Icon name="folder" /><span>数据库</span></Link>
-          <Link className="logo-button" href="/settings" title="设置"><Icon name="settings" /><span>设置</span></Link>
-          <Link className="logo-button" href="/projects" title="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
+          <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
+          <Link className="logo-button" href="/database" title="数据库" data-label="数据库"><Icon name="folder" /><span>数据库</span></Link>
+          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
+          <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
         </nav>
-        <button className="home-collapse logo-button" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title="收起侧栏">
+        <button className="home-collapse logo-button" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
           <img src={HOME_LOGO} alt="" />
           <span>{sidebarCollapsed ? "展开" : "收起"}</span>
         </button>
@@ -283,32 +289,29 @@ function HomePageContent() {
             <button type="button" className={mode === "video" ? "active" : ""} onClick={() => { setMode("video"); setModelMenuOpen(false); }}><Icon name="spark" />视频生成</button>
           </div>
 
+          <p className="home-composer-hint">
+            {mode === "image" ? "可直接文字生图，或上传图片输入文字指令对图片进行编辑。" : "描述视频场景、镜头方向和节奏，或上传图片生成动态画面。"}
+          </p>
+
           <input ref={imageInputRef} hidden type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])} />
           <button className="home-upload-strip" type="button" onClick={() => imageInputRef.current?.click()}>
             {imagePreview ? <img src={imagePreview} alt="" /> : <><Icon name="upload" />上传图片</>}
           </button>
 
-          <div className="home-mode-panel">
-            <div className="home-config-node">
-              <select value={ratio} onChange={(event) => setRatio(event.target.value as CanvasRatio)}>
-                {RATIOS.map((item) => <option key={item} value={item} disabled={!availableRatios.includes(item)}>{item}</option>)}
-              </select>
-              <select value={resolution} onChange={(event) => setResolution(event.target.value as CanvasResolution)}>
-                {RESOLUTIONS.map((item) => <option key={item} value={item} disabled={!availableResolutions.includes(item)}>{optionLabel(item)}</option>)}
-              </select>
-              {mode === "video" && (
-                <>
-                  <select value={motionPreset} onChange={(event) => setMotionPreset(event.target.value)}>
-                    {MOTION_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                  </select>
-                  <label className="duration-control">
-                    <span>{duration} 秒</span>
-                    <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
-                  </label>
-                </>
-              )}
+          {mode === "video" && (
+            <div className="home-video-options">
+              <label>
+                <span>镜头方向</span>
+                <select value={motionPreset} onChange={(event) => setMotionPreset(event.target.value)}>
+                  {MOTION_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
+                </select>
+              </label>
+              <label className="duration-control">
+                <span>{duration} 秒</span>
+                <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
+              </label>
             </div>
-          </div>
+          )}
 
           <div className="home-composer">
             <textarea
@@ -323,18 +326,26 @@ function HomePageContent() {
               }}
             />
             <div className="home-composer-footer">
-              <div className="home-model-picker">
-                <button type="button" onClick={() => setModelMenuOpen((current) => !current)}>{selectedModel.label}</button>
-                {modelMenuOpen && (
-                  <div className="home-model-menu">
-                    {currentModels.map((model) => (
-                      <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
-                        <span>{model.label}</span>
-                        <small>{model.free ? "Free" : model.provider}</small>
-                      </button>
-                    ))}
-                  </div>
-                )}
+              <div className="home-footer-controls">
+                <div className="home-model-picker">
+                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}><Icon name="box" />{selectedModel.label}</button>
+                  {modelMenuOpen && (
+                    <div className="home-model-menu">
+                      {currentModels.map((model) => (
+                        <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
+                          <span>{model.label}</span>
+                          <small>{model.free ? "Free" : model.provider}</small>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+                <select className="home-ratio-select" value={ratio} onChange={(event) => setRatio(event.target.value as CanvasRatio)}>
+                  {RATIOS.map((item) => <option key={item} value={item} disabled={!availableRatios.includes(item)}>{item}</option>)}
+                </select>
+                <select className="home-resolution-select" value={resolution} onChange={(event) => setResolution(event.target.value as CanvasResolution)}>
+                  {RESOLUTIONS.map((item) => <option key={item} value={item} disabled={!availableResolutions.includes(item)}>{optionLabel(item)}</option>)}
+                </select>
               </div>
               <div className="home-composer-actions">
                 {mode === "video" && <span className="home-credit-pill">{creditLabel}</span>}
