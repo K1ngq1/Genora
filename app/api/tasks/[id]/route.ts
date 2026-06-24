@@ -1,4 +1,5 @@
 import { db } from "@/lib/db";
+import { getUserId } from "@/lib/get-user-id";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { startImageTask } from "@/lib/image-task-runner";
 import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
@@ -7,8 +8,9 @@ import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sy
 import { startVideoTask } from "@/lib/video-task-runner";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  let task = await db.task.findUnique({ where: { id } });
+  let task = await db.task.findUnique({ where: { id, userId } });
   if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
 
   if (task.type === "image" && ["pending", "processing"].includes(task.status)) {
@@ -37,13 +39,14 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  const task = await db.task.findUnique({ where: { id } });
+  const task = await db.task.findUnique({ where: { id, userId } });
   if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
 
   const timedOut = new URL(request.url).searchParams.get("reason") === "timeout";
   const updated = await db.task.update({
-    where: { id },
+    where: { id, userId },
     data: {
       status: timedOut ? "timeout" : "cancelled",
       error: timedOut ? (task.type === "image" ? "TASK_POLL_TIMEOUT" : "AGNES_VIDEO_TIMEOUT") : "INTERRUPTED_BY_USER",

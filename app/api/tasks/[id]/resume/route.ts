@@ -1,10 +1,12 @@
-﻿import { db } from "@/lib/db";
+import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { getUserId } from "@/lib/get-user-id";
 import { publicTask } from "@/lib/tasks";
 
 export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  const task = await db.task.findUnique({ where: { id } });
+  const task = await db.task.findUnique({ where: { id, userId } });
   if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
 
   if (task.type === "image") {
@@ -30,7 +32,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ id: 
   delete params.lastRemoteStatus;
 
   const updated = await db.task.update({
-    where: { id },
+    where: { id, userId },
     data: {
       status: "queued",
       canResume: false,

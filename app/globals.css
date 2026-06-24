@@ -26,3 +26,19 @@ button{cursor:pointer}
 .sidebar .sidebar-add{color:#17131e;background:#f5f2ff}
 .sidebar .sidebar-add:hover{color:#17131e;background:#fff;transform:scale(1.05)}
 .sidebar svg{width:19px}
+/* ── Auth pages ── */
+.auth-shell{position:fixed;inset:0;display:grid;place-items:center;padding:24px;background:radial-gradient(ellipse at 50% 0%,#1e1a2f 0%,#0a0a0f 70%)}
+.auth-card{width:min(380px,100%);padding:36px 32px;border-radius:24px;background:linear-gradient(145deg,#1e1b2af5,#121018f2);border:1px solid #ffffff10;box-shadow:0 24px 80px #0006}
+.auth-header{text-align:center;margin-bottom:28px}
+.auth-header h1{font-size:28px;margin:0 0 6px;letter-spacing:-.02em}
+.auth-header p{margin:0;color:#ffffff52;font-size:13px}
+.auth-field{display:block;margin-bottom:14px}
+.auth-field span{display:block;margin-bottom:5px;font-size:12px;color:#ffffff8c}
+.auth-field input{width:100%;height:44px;border:1px solid #ffffff18;border-radius:12px;padding:0 13px;outline:0;background:#00000038;color:#fff;font:inherit;transition:border-color .2s}
+.auth-field input:focus{border-color:#aa99ff;box-shadow:0 0 0 3px #aa99ff18}
+.auth-submit{width:100%;height:44px;margin-top:18px;border:0;border-radius:12px;background:linear-gradient(135deg,#b8a9ff,#9d8cf0);color:#0b0818;font-weight:700;font-size:14px;transition:transform .15s,box-shadow .15s}
+.auth-submit:hover{transform:translateY(-1px);box-shadow:0 8px 24px #9d8cf040}
+.auth-footer{text-align:center;margin-top:20px;font-size:13px;color:#ffffff52}
+.auth-footer a{color:#b8a9ff;text-decoration:none;font-weight:600}
+.auth-footer a:hover{text-decoration:underline}
+.auth-error{display:block;text-align:center;margin-top:14px;padding:10px;border-radius:10px;background:#ff3b3020;color:#ff939e;font-size:13px}

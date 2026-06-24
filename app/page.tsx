@@ -37,6 +37,8 @@ import {
 } from "@/lib/model-catalog";
 import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
 import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
+import { createClient } from "@/lib/supabase/client";
+import { logout } from "@/lib/supabase/actions";
 
 type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
 type Ratio = CanvasRatio;
@@ -119,7 +121,7 @@ const VIDEO_FRAME_RATE = 24;
 const MAX_VIDEO_FRAMES = 441;
 const SAFE_VIDEO_MAX_FRAMES = 121;
 const SAFE_VIDEO_QUALITY: Quality = "1k";
-const TEMP_USER_NAME = "Genora";
+const displayName = (email: string) => email.split("@")[0] || email || "Genora";
 const MOTION_PRESETS: Array<{ id: MotionPreset; label: string; prompt: string }> = [
   { id: "auto", label: "自动镜头", prompt: "Use natural cinematic motion that best fits the scene." },
   { id: "push-in", label: "缓慢推进", prompt: "Camera slowly pushes in toward the subject." },
@@ -686,6 +688,18 @@ function WorkflowCanvas() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState("");
   const [canUndoDelete, setCanUndoDelete] = useState(false);
+  const [userEmail, setUserEmail] = useState<string>("");
+  const supabase = createClient();
+
+  useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user?.email) setUserEmail(user.email);
+    });
+  }, []);
+
+  const handleLogout = useCallback(async () => {
+    await logout();
+  }, []);
   const agentHasConversation = agentMessages.length > 0 || agentBusy;
   const saveLabel = {
     loading: "正在加载项目",
@@ -1582,7 +1596,11 @@ function WorkflowCanvas() {
       <header className={`topbar ${agentOpen ? "agent-open" : ""}`}>
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
         <div className="top-title"><i className={`status-dot ${saveStatus}`} /><span>{project?.name ?? "empty space"}</span><small>{saveLabel}</small></div>
-        <div className="top-actions"><Link className="glass-pill" href="/projects"><Icon name="history" />作品库</Link></div>
+        <div className="top-actions">
+          <span className="glass-pill" style={{ textTransform: "none" }}>{displayName(userEmail)}</span>
+          <button className="glass-pill" onClick={handleLogout}>退出</button>
+          <Link className="glass-pill" href="/projects"><Icon name="history" />作品库</Link>
+        </div>
       </header>
 
       {renameOpen && (
@@ -1721,7 +1739,7 @@ function WorkflowCanvas() {
           <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button><button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
           {!agentHasConversation && (
             <section className="agent-hero">
-              <p className="agent-hi"><img src="/assets/genora-logo.png" alt="" />Hi! {TEMP_USER_NAME}</p>
+              <p className="agent-hi"><img src="/assets/genora-logo.png" alt="" />Hi! {displayName(userEmail)}</p>
               <h2>今天一起创作点什么？</h2>
               <div className="agent-suggestions">{visibleSuggestions.map((text) => <button key={text} onClick={() => useSuggestion(text)}>{text.length > 12 ? `${text.slice(0, 12)}...` : text}</button>)}</div>
             </section>

@@ -1,13 +1,20 @@
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { mkdirSync, unlinkSync, existsSync } from "node:fs";
 import { dirname, join } from "node:path";
 
 const dbPath = join(process.cwd(), "prisma", "dev.db");
 mkdirSync(dirname(dbPath), { recursive: true });
+
+// 重建数据库（本地开发用，生产环境需用 Prisma Migrate）
+if (existsSync(dbPath)) {
+  unlinkSync(dbPath);
+  console.log("Deleted existing dev.db");
+}
 const db = new DatabaseSync(dbPath);
 db.exec(`
   CREATE TABLE IF NOT EXISTS "Task" (
     "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
     "type" TEXT NOT NULL,
     "status" TEXT NOT NULL DEFAULT 'pending',
     "prompt" TEXT NOT NULL,
@@ -20,8 +27,11 @@ db.exec(`
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
   );
+  CREATE INDEX IF NOT EXISTS "Task_userId_idx" ON "Task"("userId");
+
   CREATE TABLE IF NOT EXISTS "Project" (
     "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
     "name" TEXT NOT NULL DEFAULT 'empty space',
     "canvasData" TEXT NOT NULL,
     "requiresRename" BOOLEAN NOT NULL DEFAULT true,
@@ -29,8 +39,11 @@ db.exec(`
     "updatedAt" DATETIME NOT NULL,
     "lastOpenedAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP
   );
+  CREATE INDEX IF NOT EXISTS "Project_userId_idx" ON "Project"("userId");
+
   CREATE TABLE IF NOT EXISTS "Asset" (
     "id" TEXT NOT NULL PRIMARY KEY,
+    "userId" TEXT NOT NULL,
     "kind" TEXT NOT NULL DEFAULT 'image',
     "projectId" TEXT,
     "nodeId" TEXT,
@@ -46,6 +59,7 @@ db.exec(`
   );
   CREATE UNIQUE INDEX IF NOT EXISTS "Asset_path_key" ON "Asset"("path");
   CREATE INDEX IF NOT EXISTS "Asset_projectId_idx" ON "Asset"("projectId");
+  CREATE INDEX IF NOT EXISTS "Asset_userId_idx" ON "Asset"("userId");
 `);
 db.close();
 console.log(`SQLite initialized: ${dbPath}`);

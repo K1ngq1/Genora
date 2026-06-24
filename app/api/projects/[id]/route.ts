@@ -1,14 +1,16 @@
 import { db } from "@/lib/db";
+import { getUserId } from "@/lib/get-user-id";
 import { repairLegacyAssetUrls } from "@/lib/assets";
 import { normalizeProjectName, parseCanvasData, publicProject } from "@/lib/projects";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  const project = await db.project.findUnique({ where: { id } });
+  const project = await db.project.findUnique({ where: { id, userId } });
   if (!project) return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
   const repaired = await repairLegacyAssetUrls(parseCanvasData(project.canvasData));
   const opened = await db.project.update({
-    where: { id },
+    where: { id, userId },
     data: {
       lastOpenedAt: new Date(),
       ...(repaired.changed ? { canvasData: JSON.stringify(repaired.canvasData) } : {}),
@@ -18,9 +20,10 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 }
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
   const body = await request.json().catch(() => ({})) as Record<string, unknown>;
-  const existing = await db.project.findUnique({ where: { id } });
+  const existing = await db.project.findUnique({ where: { id, userId } });
   if (!existing) return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
 
   const data: {
@@ -40,14 +43,15 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
     data.canvasData = JSON.stringify(parseCanvasData(body.canvasData));
   }
 
-  const project = await db.project.update({ where: { id }, data });
+  const project = await db.project.update({ where: { id, userId }, data });
   return Response.json(publicProject(project));
 }
 
 export async function DELETE(_request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  const existing = await db.project.findUnique({ where: { id }, select: { id: true } });
+  const existing = await db.project.findUnique({ where: { id, userId }, select: { id: true } });
   if (!existing) return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
-  await db.project.delete({ where: { id } });
+  await db.project.delete({ where: { id, userId } });
   return new Response(null, { status: 204 });
 }

@@ -3,6 +3,7 @@ import { isAgnesConfigured } from "@/lib/agnes";
 import { isApimartConfigured } from "@/lib/apimart";
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { getUserId } from "@/lib/get-user-id";
 import { scheduleImageTask } from "@/lib/image-task-runner";
 import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
 import { saveBuffer } from "@/lib/storage";
@@ -27,6 +28,7 @@ async function persistReference(url: string, requestUrl: string) {
 
 export async function POST(request: Request) {
   try {
+    const userId = await getUserId();
     const body = await request.json();
     const prompt = String(body.prompt ?? "").trim();
     const modelId = String(body.model ?? DEFAULT_MODEL);
@@ -53,6 +55,7 @@ export async function POST(request: Request) {
 
     const task = await db.task.create({
       data: {
+        userId,
         type: "image",
         status: "pending",
         prompt,
@@ -76,6 +79,7 @@ export async function POST(request: Request) {
     scheduleImageTask(task.id);
     return Response.json(publicTask(task));
   } catch (error) {
+    console.error("[images/generate] error:", error instanceof Error ? `${error.name}: ${error.message}\n${error.stack}` : error);
     return errorResponse(error, error instanceof AppError ? error.status : 502);
   }
 }

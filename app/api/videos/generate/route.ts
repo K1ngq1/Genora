@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { getUserId } from "@/lib/get-user-id";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { scheduleVideoTask } from "@/lib/video-task-runner";
@@ -31,6 +32,7 @@ function normalizeNumFrames(value: number) {
 }
 
 export async function POST(request: Request) {
+  const userId = await getUserId();
   const form = await request.formData();
   const prompt = String(form.get("prompt") ?? "").trim();
   const negativePrompt = String(form.get("negativePrompt") ?? "").trim();
@@ -116,6 +118,7 @@ export async function POST(request: Request) {
 
   const task = await db.task.create({
     data: {
+      userId,
       type: inputPath ? "image-to-video" : "text-to-video",
       status: "pending",
       prompt,
