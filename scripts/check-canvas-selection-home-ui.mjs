@@ -8,7 +8,8 @@ function assert(condition, message) {
 }
 
 assert(page.includes('className="home-fab"'), "top-left home entry should exist");
-assert(page.includes('href="/"'), "home entry should return to the homepage");
+assert(page.includes('className="home-menu') || page.includes("className='home-menu"), "home logo should open a navigation menu");
+assert(page.includes('href="/"') && page.includes('href="/projects"'), "home menu should link to homepage and project library");
 assert(page.includes("selectionSuppressed"), "selected nodes should be able to suppress prompt panels");
 assert(page.includes("selectionAction"), "selection action overlay should be computed");
 assert(page.includes("selection-action-pop"), "selection action overlay should render above the selection");
@@ -25,7 +26,7 @@ assert(!css.includes(".canvas-node:hover .prompt-pop"), "prompt panel must not o
 assert(css.includes("animation:none"), "agent/home logo should not rotate");
 assert(css.includes(".home-fab{display:grid;place-items:center;flex:0 0 auto;width:44px;height:44px;border:0;border-radius:0;background:transparent;box-shadow:none"), "home logo should not have a visible background frame");
 assert(css.includes(".home-fab img{width:38px;height:38px"), "home logo should be enlarged");
-assert(css.includes("--canvas-visual-scale:.6"), "main canvas visual scale should be about 60%");
+assert(css.includes("--canvas-visual-scale:.56"), "main canvas visual scale should be slightly smaller than 60%");
 assert(!css.includes(".canvas-shell .react-flow__viewport{zoom:"), "React Flow viewport should not use CSS zoom because it breaks selection and double-click coordinates");
 assert(css.includes("width:190px!important;height:112px!important"), "minimap should keep its original size");
 assert(css.includes(".canvas-shell .react-flow__minimap{left:24px!important;bottom:88px!important"), "minimap should sit above the bottom slider controls");

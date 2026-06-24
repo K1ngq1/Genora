@@ -22,7 +22,10 @@ const [home, workspace, projects] = await Promise.all([
   readFile(projectsPage, "utf8"),
 ]);
 
-assert(home.includes("/api/agent/generate"), "Home page must call the existing Agnes Agent API");
+assert(home.includes("/api/images/generate"), "Home page must call the image generation API");
+assert(home.includes("/api/videos/generate"), "Home page must call the video generation API");
+assert(home.includes("/api/tasks/"), "Home page must poll generated media tasks");
+assert(!home.includes("/api/agent/generate"), "Home page media generation must not call the Agnes text Agent API");
 assert(home.includes("href=\"/projects\""), "Home page must link the workspace button to /projects");
 assert(!home.includes("href=\"/database\""), "Home page should not show the removed database button");
 assert(home.includes("MODEL_CATALOG"), "Home page must reuse the shared model catalog");
