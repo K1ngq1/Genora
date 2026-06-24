@@ -61,7 +61,9 @@ type IconName =
   | "camera"
   | "stop"
   | "arrow-up"
-  | "folder";
+  | "folder"
+  | "chat"
+  | "layers";
 
 type WorkData = {
   kind: Kind;
@@ -102,7 +104,8 @@ type StoredWorkNode = Omit<WorkNode, "data"> & { data: StoredWorkData };
 type MaterialLibraryItem = {
   id: string;
   name: string;
-  kind: "image" | "video" | "node" | "group";
+  kind: "image" | "video" | "node" | "group" | "folder";
+  folderId?: string | null;
   url?: string;
   nodes?: StoredWorkNode[];
   edges?: Edge[];
@@ -362,6 +365,13 @@ function Icon({ name }: { name: IconName }) {
     stop: <rect x="8" y="8" width="8" height="8" rx="1.5" />,
     "arrow-up": <path d="M12 19V5m0 0-6 6m6-6 6 6" />,
     folder: <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />,
+    chat: <path d="M5 6.5h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />,
+    layers: (
+      <>
+        <path d="m12 3 8 4.5-8 4.5-8-4.5Z" />
+        <path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" />
+      </>
+    ),
   };
 
   return (
@@ -736,6 +746,9 @@ function WorkflowCanvas() {
   const [miniMapOpen, setMiniMapOpen] = useState(false);
   const [materialLibraryOpen, setMaterialLibraryOpen] = useState(false);
   const [materialLibrary, setMaterialLibrary] = useState<MaterialLibraryItem[]>([]);
+  const [activeLibraryFolderId, setActiveLibraryFolderId] = useState<string | null>(null);
+  const [editingLibraryItemId, setEditingLibraryItemId] = useState<string | null>(null);
+  const [editingLibraryName, setEditingLibraryName] = useState("");
   const [gridVisible, setGridVisible] = useState(true);
   const [themeTone, setThemeTone] = useState<ThemeTone>("dark");
   const [accentColor, setAccentColor] = useState("#a996ff");
@@ -751,7 +764,7 @@ function WorkflowCanvas() {
   const [renameOpen, setRenameOpen] = useState(false);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState("");
-  const [canUndoDelete, setCanUndoDelete] = useState(false);
+  const [, setCanUndoDelete] = useState(false);
   const agentHasConversation = agentMessages.length > 0 || agentBusy;
   const saveLabel = {
     loading: "正在加载项目",
@@ -763,6 +776,7 @@ function WorkflowCanvas() {
   const nodesRef = useRef(nodes);
   const edgesRef = useRef(edges);
   const configRef = useRef(config);
+  const materialLibraryRef = useRef(materialLibrary);
   const interruptedRef = useRef(new Set<string>());
   const messagesRef = useRef(agentMessages);
   const attachmentsRef = useRef(agentAttachments);
@@ -779,6 +793,14 @@ function WorkflowCanvas() {
   const agentImagePicker = useRef<HTMLInputElement>(null);
   const agentVideoPicker = useRef<HTMLInputElement>(null);
   const visibleSuggestions = useMemo(() => [0, 1, 2].map((index) => SUGGESTIONS[(suggestionOffset + index) % SUGGESTIONS.length]), [suggestionOffset]);
+  const activeLibraryFolder = useMemo(
+    () => materialLibrary.find((item) => item.id === activeLibraryFolderId && item.kind === "folder"),
+    [activeLibraryFolderId, materialLibrary],
+  );
+  const visibleLibraryItems = useMemo(
+    () => materialLibrary.filter((item) => (item.folderId ?? null) === activeLibraryFolderId),
+    [activeLibraryFolderId, materialLibrary],
+  );
   const renderedNodes = useMemo(() => {
     const suppressPromptIds = new Set(selectedIds.length > 1 ? selectedIds : []);
     return nodes.map((node) => {
@@ -813,6 +835,7 @@ function WorkflowCanvas() {
   useEffect(() => { nodesRef.current = nodes; }, [nodes]);
   useEffect(() => { edgesRef.current = edges; }, [edges]);
   useEffect(() => { configRef.current = config; }, [config]);
+  useEffect(() => { materialLibraryRef.current = materialLibrary; }, [materialLibrary]);
   useEffect(() => { messagesRef.current = agentMessages; }, [agentMessages]);
   useEffect(() => { attachmentsRef.current = agentAttachments; }, [agentAttachments]);
   useEffect(() => { projectRef.current = project; }, [project]);
@@ -919,6 +942,7 @@ function WorkflowCanvas() {
       id: randomUuid(),
       name: label || "素材",
       kind,
+      folderId: activeLibraryFolderId,
       url: libraryNodes.length === 1 ? first.data.url : undefined,
       nodes: libraryNodes,
       edges: libraryEdges,
@@ -928,7 +952,7 @@ function WorkflowCanvas() {
     setMaterialLibraryOpen(true);
     markUnsaved();
     setNodeContextMenu(undefined);
-  }, [clipboardNodeIds, markUnsaved, selectedIds]);
+  }, [activeLibraryFolderId, clipboardNodeIds, markUnsaved, selectedIds]);
   const pasteCanvasSelection = useCallback((position?: { x: number; y: number }) => {
     const snapshot = canvasClipboardRef.current;
     if (!snapshot?.nodes.length) return;
@@ -1291,6 +1315,7 @@ function WorkflowCanvas() {
         id: randomUuid(),
         name: file.name,
         kind: file.type.startsWith("video/") ? "video" : "image",
+        folderId: activeLibraryFolderId,
         url,
         createdAt: new Date().toISOString(),
       };
@@ -1301,7 +1326,37 @@ function WorkflowCanvas() {
       setSaveStatus("error");
       window.alert(error instanceof Error ? error.message : "素材上传失败");
     }
-  }, [markUnsaved, uploadCanvasFile]);
+  }, [activeLibraryFolderId, markUnsaved, uploadCanvasFile]);
+  const createLibraryFolder = useCallback(() => {
+    const item: MaterialLibraryItem = {
+      id: randomUuid(),
+      name: "新建文件夹",
+      kind: "folder",
+      folderId: activeLibraryFolderId,
+      createdAt: new Date().toISOString(),
+    };
+    setMaterialLibrary((current) => [item, ...current].slice(0, 100));
+    setEditingLibraryItemId(item.id);
+    setEditingLibraryName(item.name);
+    markUnsaved();
+  }, [activeLibraryFolderId, markUnsaved]);
+  const startRenameLibraryItem = useCallback((item: MaterialLibraryItem) => {
+    setEditingLibraryItemId(item.id);
+    setEditingLibraryName(item.name);
+  }, []);
+  const commitRenameLibraryItem = useCallback(() => {
+    if (!editingLibraryItemId) return;
+    const nextName = editingLibraryName.trim();
+    if (!nextName) {
+      setEditingLibraryItemId(null);
+      setEditingLibraryName("");
+      return;
+    }
+    setMaterialLibrary((current) => current.map((item) => item.id === editingLibraryItemId ? { ...item, name: nextName } : item));
+    setEditingLibraryItemId(null);
+    setEditingLibraryName("");
+    markUnsaved();
+  }, [editingLibraryItemId, editingLibraryName, markUnsaved]);
   const fanOutGroupConnection = useCallback((sourceId: string, targetId: string) => {
     const source = nodesRef.current.find((node) => node.id === sourceId);
     const sourceIds = source?.data.kind === "group"
@@ -1475,9 +1530,9 @@ function WorkflowCanvas() {
       nodes: storedNodes,
       edges: edgesRef.current,
       viewport: reactFlow.getViewport(),
-      libraryItems: materialLibrary,
+      libraryItems: materialLibraryRef.current,
     };
-  }, [materialLibrary, reactFlow]);
+  }, [reactFlow]);
 
   const saveProject = useCallback(async (name?: string) => {
     const current = projectRef.current;
@@ -1900,6 +1955,7 @@ function WorkflowCanvas() {
         {miniMapOpen && <MiniMap position="bottom-right" pannable zoomable nodeColor="#8f7df5" maskColor="#050507a8" />}
         <Panel position="top-left" className="sidebar glass">
           <button className="sidebar-add" title="添加节点" onClick={(event) => { const rect = event.currentTarget.getBoundingClientRect(); openMenu(rect.right + 24, rect.top + 18); }}><Icon name="plus" /></button>
+          <button title="素材库" className={materialLibraryOpen ? "selected" : ""} onClick={() => setMaterialLibraryOpen((current) => !current)}><Icon name="folder" /></button>
           <button title="文本" onClick={() => addNode("text")}><Icon name="text" /></button>
           <button title="图像" onClick={() => addNode("image")}><Icon name="image" /></button>
           <button title="视频" onClick={() => addNode("video")}><Icon name="video" /></button>
@@ -1952,27 +2008,47 @@ function WorkflowCanvas() {
       {materialLibraryOpen && (
         <aside className="material-library-panel glass">
           <header>
-            <div><b>素材库</b><span>{materialLibrary.length} 个素材</span></div>
+            <button className="material-back-button" type="button" onClick={() => activeLibraryFolderId ? setActiveLibraryFolderId(activeLibraryFolder?.folderId ?? null) : setMaterialLibraryOpen(false)}>
+              <Icon name="arrow-up" />
+            </button>
+            <div><b>素材库</b><span>{activeLibraryFolder?.name ?? "全部文件"}</span></div>
             <button type="button" onClick={() => setMaterialLibraryOpen(false)}><Icon name="close" /></button>
           </header>
           <div className="material-library-actions">
-            <button className="material-upload-button" type="button" onClick={() => libraryPicker.current?.click()}><Icon name="upload" />上传素材</button>
-            <button className="material-upload-button" type="button" disabled={!selectedIds.length} onClick={() => saveSelectionToLibrary()}><Icon name="folder" />保存当前选择</button>
+            <button className="material-upload-button" type="button" onClick={createLibraryFolder}><Icon name="folder" />新建文件夹</button>
+            <button className="material-upload-button" type="button" onClick={() => libraryPicker.current?.click()}><Icon name="upload" />上传资产</button>
+            <button className="material-upload-button" type="button" disabled={!selectedIds.length} onClick={() => saveSelectionToLibrary()}><Icon name="layers" />保存选择</button>
           </div>
           <div className="material-library-grid">
-            {!materialLibrary.length && <p className="material-empty">上传图片/视频，或框选节点后保存到素材库。</p>}
-            {materialLibrary.map((item) => (
+            {!visibleLibraryItems.length && <p className="material-empty">新建文件夹，或上传图片/视频资产。</p>}
+            {visibleLibraryItems.map((item) => (
               <article className="material-card" key={item.id}>
-                <div className="material-preview">
+                <button className="material-preview" type="button" onClick={() => item.kind === "folder" ? setActiveLibraryFolderId(item.id) : addLibraryItemToCanvas(item)}>
                   {item.url && item.kind === "image" ? <img src={item.url} alt={item.name} /> : null}
                   {item.url && item.kind === "video" ? <video src={item.url} muted /> : null}
-                  {!item.url && <Icon name={item.kind === "video" ? "video" : item.kind === "image" ? "image" : "grid"} />}
-                </div>
+                  {!item.url && <Icon name={item.kind === "folder" ? "folder" : item.kind === "video" ? "video" : item.kind === "image" ? "image" : "grid"} />}
+                </button>
                 <div className="material-meta">
-                  <b>{item.name}</b>
-                  <span>{item.kind === "group" ? "组合素材" : item.kind === "node" ? "节点素材" : item.kind === "video" ? "视频素材" : "图片素材"}</span>
+                  {editingLibraryItemId === item.id ? (
+                    <input
+                      value={editingLibraryName}
+                      autoFocus
+                      onChange={(event) => setEditingLibraryName(event.target.value)}
+                      onBlur={commitRenameLibraryItem}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") commitRenameLibraryItem();
+                        if (event.key === "Escape") {
+                          setEditingLibraryItemId(null);
+                          setEditingLibraryName("");
+                        }
+                      }}
+                    />
+                  ) : (
+                    <button type="button" onClick={() => startRenameLibraryItem(item)}>{item.name}</button>
+                  )}
+                  <span>{item.kind === "folder" ? "文件夹" : item.kind === "group" ? "组合资产" : item.kind === "node" ? "节点资产" : item.kind === "video" ? "视频资产" : "图片资产"}</span>
                 </div>
-                <button type="button" onClick={() => addLibraryItemToCanvas(item)}>添加</button>
+                {item.kind !== "folder" && <button type="button" onClick={() => addLibraryItemToCanvas(item)}>添加</button>}
               </article>
             ))}
           </div>
@@ -1980,8 +2056,6 @@ function WorkflowCanvas() {
       )}
 
       <div className="canvas-control-bar glass">
-        <button aria-label="撤回删除节点" title="撤回删除 (Ctrl+Z)" disabled={!canUndoDelete} onClick={restoreDeletedCanvas}><Icon name="history" /></button>
-        <button title="素材库" className={materialLibraryOpen ? "selected" : ""} onClick={() => setMaterialLibraryOpen((current) => !current)}><Icon name="folder" /></button>
         <button title="小地图" className={miniMapOpen ? "selected" : ""} onClick={() => setMiniMapOpen((current) => !current)}><Icon name="map" /></button>
         <button title="网格提示" className={gridVisible ? "selected" : ""} onClick={() => setGridVisible((current) => !current)}><Icon name="grid" /></button>
         <button title="适配画布" onClick={() => reactFlow.fitView({ duration: 220, maxZoom: 1 })}><Icon name="fit" /></button>
