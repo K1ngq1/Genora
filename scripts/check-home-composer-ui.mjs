@@ -7,6 +7,8 @@ const workflowCss = await readFile("app/workflow.css", "utf8");
 const modelPickerIndex = home.indexOf("home-model-picker");
 const ratioIndex = home.indexOf("home-ratio-select");
 const resolutionIndex = home.indexOf("home-resolution-select");
+const settingsIndex = home.indexOf('href="/settings"');
+const bottomIndex = home.indexOf("home-sidebar-bottom");
 
 const checks = [
   ["collapsed sidebar state", home.includes("sidebarCollapsed")],
@@ -16,11 +18,14 @@ const checks = [
   ["collapsed text hidden", css.includes(".home-sidebar.collapsed .logo-button span{display:none}")],
   ["expanded sidebar width increased", css.includes("width:236px") && css.includes("margin-left:236px")],
   ["dark home surface", css.includes("background:#070708") && css.includes(".home-sidebar{") && css.includes("background:#0b0b0d")],
+  ["black glass genora mark", home.includes("GenoraMark") && css.includes(".genora-mark") && css.includes("grayscale(1)")],
   ["sidebar home link", home.includes('href="/"') && home.includes("首页")],
-  ["sidebar database link", home.includes('href="/database"') && home.includes("数据库")],
-  ["sidebar settings link", home.includes('href="/settings"') && home.includes("设置")],
+  ["database link removed", !home.includes('href="/database"')],
+  ["settings moved to bottom", settingsIndex > bottomIndex && bottomIndex > -1],
+  ["collapse arrow button", home.includes('name={sidebarCollapsed ? "chevron-right" : "chevron-left"}') && css.includes(".home-collapse svg{width:16px;height:16px")],
   ["sidebar workspace link", home.includes('href="/projects"') && home.includes("工作空间")],
-  ["sidebar symbolic icons", home.includes('name="home"') && home.includes('name="folder"') && home.includes('name="settings"') && home.includes('name="nodes"')],
+  ["sidebar symbolic icons", home.includes('name="home"') && home.includes('name="settings"') && home.includes('name="nodes"')],
+  ["mouse reactive dot grid", home.includes("updateGridGlow") && home.includes("--grid-x") && css.includes(".home-grid:after")],
   ["no top header nav", !home.includes("home-header") && !home.includes("home-actions")],
   ["no featured recommendations", !home.includes("精选推荐") && !home.includes("featured-grid")],
   ["empty stage", home.includes("home-stage") && home.includes("今天要做点什么？")],

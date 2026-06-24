@@ -24,7 +24,7 @@ const [home, workspace, projects] = await Promise.all([
 
 assert(home.includes("/api/agent/generate"), "Home page must call the existing Agnes Agent API");
 assert(home.includes("href=\"/projects\""), "Home page must link the workspace button to /projects");
-assert(home.includes("href=\"/database\""), "Home page must link the database button to /database");
+assert(!home.includes("href=\"/database\""), "Home page should not show the removed database button");
 assert(home.includes("MODEL_CATALOG"), "Home page must reuse the shared model catalog");
 assert(!home.includes("ReactFlowProvider"), "Home page should not render the infinite canvas directly");
 assert(!home.includes("home-header"), "Home page should not keep the old top header");

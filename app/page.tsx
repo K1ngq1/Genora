@@ -16,7 +16,18 @@ import "./home.css";
 
 type HomeMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type HomeMode = Extract<GenerationKind, "image" | "video">;
-type IconName = "home" | "folder" | "settings" | "nodes" | "mic" | "image" | "upload" | "spark" | "send" | "box";
+type IconName =
+  | "home"
+  | "settings"
+  | "nodes"
+  | "mic"
+  | "image"
+  | "upload"
+  | "spark"
+  | "send"
+  | "box"
+  | "chevron-left"
+  | "chevron-right";
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
 type SpeechRecognitionLike = {
@@ -74,7 +85,6 @@ function optionLabel(value: CanvasResolution) {
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
     home: <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" />,
-    folder: <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />,
     settings: (
       <>
         <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
@@ -111,12 +121,22 @@ function Icon({ name }: { name: IconName }) {
         <path d="m5 7 7 4 7-4M12 11v8" />
       </>
     ),
+    "chevron-left": <path d="m15 18-6-6 6-6" />,
+    "chevron-right": <path d="m9 18 6-6-6-6" />,
   };
 
   return (
     <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       {paths[name]}
     </svg>
+  );
+}
+
+function GenoraMark({ className = "" }: { className?: string }) {
+  return (
+    <span className={`genora-mark ${className}`}>
+      <img src={HOME_LOGO} alt="" />
+    </span>
   );
 }
 
@@ -170,6 +190,12 @@ function HomePageContent() {
     if (!model.resolutions.includes(resolution)) setResolution(model.defaultResolution);
     if (model.kind === "video") setDuration(Math.min(model.maxDuration ?? duration, Math.max(model.minDuration ?? duration, duration)));
     setModelMenuOpen(false);
+  };
+
+  const updateGridGlow = (event: React.PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.style.setProperty("--grid-x", `${event.clientX - rect.left}px`);
+    event.currentTarget.style.setProperty("--grid-y", `${event.clientY - rect.top}px`);
   };
 
   const submitHomePrompt = async () => {
@@ -252,27 +278,28 @@ function HomePageContent() {
     <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
         <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
-          <img src={HOME_LOGO} alt="" />
+          <GenoraMark />
           <span>Genora</span>
         </Link>
         <nav aria-label="主导航">
           <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
-          <Link className="logo-button" href="/database" title="数据库" data-label="数据库"><Icon name="folder" /><span>数据库</span></Link>
-          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
           <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
         </nav>
-        <button className="home-collapse logo-button" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
-          <img src={HOME_LOGO} alt="" />
-          <span>{sidebarCollapsed ? "展开" : "收起"}</span>
-        </button>
+        <div className="home-sidebar-bottom">
+          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
+          <button className="home-collapse" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
+            <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
+            <span>{sidebarCollapsed ? "展开" : "收起"}</span>
+          </button>
+        </div>
       </aside>
 
-      <section className="home-main">
+      <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />
         <section className="home-stage" aria-label="对话区域">
           {!messages.length && (
             <div className="home-stage-empty">
-              <img src={HOME_LOGO} alt="" />
+              <GenoraMark className="stage-mark" />
               <h1>今天要做点什么？</h1>
               <span>已接入 {MODEL_COUNT} 个创作模型</span>
             </div>
