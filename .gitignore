@@ -7,47 +7,39 @@ node_modules/
 .next-dev/
 out/
 
-# Local environment variables and secrets
+# Environment variables
 .env
 .env.*
 !.env.example
 
-# Local database files
+# Database
 prisma/dev.db
 prisma/dev.db-journal
-*.db-journal
 
-# Generated images, videos and uploads
+# Storage
 storage/*
 !storage/.gitkeep
 
-# TypeScript and test caches
+# TypeScript
 *.tsbuildinfo
-coverage/
 
 # Logs
 *.log
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-pnpm-debug.log*
 
-# Hosting and editor metadata
-.vercel/
+# IDE / Editor
 .vscode/
 .idea/
 
-# Local workspace artifacts
+# Python venvs
+.venv-*/
+
+# Tool artifacts
 .agents
-.venv-ideogram/
+.codex-*/
+.superpowers/
+.netlify/
+.generated/
 vendor/
 
-# Netlify build artifacts
-
-.netlify/
-.superpowers/
-
-
-# Generated Prisma client
-
-generated/
+# Coverage
+coverage/

@@ -3,103 +3,55 @@
 ## 1. 项目背景
 
 - 本项目是 Genora，一个基于 Next.js 的无限画布 AI 创作工作台。
-- 当前核心能力包括：文本生图、文本生视频、图片/提示词生视频、Agent 对话辅助创作。
-- 后续部署和数据服务优先接入 Supabase；如本地仍保留 SQLite/Prisma 过渡实现，修改前需要先确认当前代码结构和已有技术栈。
-- 开发前必须先阅读当前项目目录、代码风格、接口实现和已有文档，不要脱离现有实现重新设计。
+- 核心能力：文本生图、文本生视频、图片/提示词生视频、Agent 对话辅助创作。
+- 部署和数据服务优先接入 Supabase；如仍保留 SQLite/Prisma，修改前先确认当前技术栈。
+- 开发前必须先阅读项目目录、代码风格、接口实现和已有文档。
 
-## 2. 项目文档目录约定
+## 2. 文档目录
 
-- 所有项目文档统一放在 `docs/` 目录下。
-- `docs/prd.md`：存放已确认的产品需求、功能规格、业务规则和待确认问题。
-- `docs/images/`：存放截图、界面参考图、流程图等图片资料。
-- `docs/api/`：存放 API 文档、接口约定和第三方服务对接说明。
-- 新增需求前，先判断是否已经在 `docs/prd.md` 中确认；未确认内容不要当作最终需求实现。
+所有项目文档统一放在 `docs/` 目录下：
+
+- `docs/prd.md` — 已确认的产品需求、功能规格、业务规则
+- `docs/api/` — API 文档、接口约定、第三方服务对接
+- `docs/images/` — 截图、界面参考图、流程图
+
+新增需求前，先确认是否已在 `docs/prd.md` 中记录。
 
 ## 3. 需求沉淀规则
 
-- 当用户讨论功能、产品需求、业务规则或交互细节时，应优先沉淀到 `docs/prd.md`。
-- 写入 PRD 前，只记录已经明确确认的信息，不要把未经确认的猜测当成最终需求。
-- 如果需求不完整，可以记录为“待确认问题”或“开放问题”。
-- 涉及 API、模型、计费、部署和数据权限的需求，应同时记录关键约束和风险。
+- 讨论功能、需求、业务规则时，优先沉淀到 `docs/prd.md`。
+- 只记录已明确确认的信息，未确认内容记为"待确认问题"。
+- 涉及 API、模型、计费、部署和权限的需求，同时记录约束和风险。
 
 ## 4. Supabase 操作规则
 
-- 执行 Supabase 相关任务时，优先使用可用的 Supabase MCP 或名为 Genora MCP 的 MCP 工具完成操作。
-- Supabase 相关任务包括但不限于：
-  - 数据库表结构查看和创建
-  - SQL 查询
-  - RLS 策略查看和创建
-  - Storage Bucket 查看和创建
-  - 部署前数据库、权限、存储检查
-- 如果当前会话无法访问 Supabase MCP/Genora MCP，应明确说明 MCP 不可用，不要伪造执行结果。
-- 涉及生产部署、数据库迁移、RLS 或公开访问权限时，需要先向用户确认。
+- 执行 Supabase 任务时，优先使用 Supabase MCP 或 Genora MCP 工具。
+- 涉及生产部署、数据库迁移、RLS 或公开访问权限时，需先向用户确认。
+- MCP 不可用时明确说明，不要伪造执行结果。
 
-## 5. 安全和配置约定
+## 5. 安全约定
 
-- 不要把 Supabase service role key、数据库密码、API Key、访问令牌等敏感信息写入前端代码、文档示例或提交到仓库。
+- 不要把密钥、密码、API Key 写入前端代码、文档或提交到仓库。
 - 前端只能使用 `NEXT_PUBLIC_` 开头的公开环境变量。
-- 服务端密钥必须通过 `.env` 或部署平台的环境变量配置。
-- 涉及用户数据访问时，优先考虑 RLS 策略和最小权限原则。
-- 不要在日志、错误提示或前端响应里暴露完整密钥。
+- 服务端密钥通过 `.env` 或部署平台配置。
+- 不要在日志或错误提示中暴露完整密钥。
 
-## 6. 文件删除规则
+## Encoding Rules
 
-- 禁止批量删除文件或目录。
-- 不要使用：
-  - `del /s`
-  - `rd /s`
-  - `rmdir /s`
-  - `Remove-Item -Recurse`
-  - `rm -rf`
-- 需要删除文件时，只能一次删除一个明确路径的文件。
-- 正确示例：`Remove-Item "C:\path\to\file.txt"`
-- 如果需要批量删除文件，应停止操作，并询问用户，让用户手动删除。
+- All source files must be read and written as UTF-8.
+- Do not use shell redirection such as `echo ... > file`, `type > file`, or PowerShell `Out-File` to rewrite source files containing Chinese text.
+- Do not use `Set-Content` without explicit `-Encoding utf8`.
+- Prefer editing files through patch/edit tools.
+- If scripts are needed, use Node.js `fs.readFileSync(path, "utf8")` and `fs.writeFileSync(path, content, "utf8")`.
+- Never convert existing Chinese UI text to escaped, mojibake, ANSI, GBK, or garbled text.
+- Before saving files with Chinese text, verify that Chinese characters remain readable.
 
-## 7. 文件编码规则
+## 7. 代码复用规则
 
-- 以后新增或修改的代码文件统一使用 UTF-8 编码保存。
-- 修改现有文件时，应保持或转换为 UTF-8 编码，避免使用 ANSI、GBK 等其他编码。
-- 保存后如发现中文乱码，应先检查并修正文件编码，再继续修改代码。
-
-## 8.Code Reuse and Refactoring Rules
-
-The codebase is becoming large, so future changes must prioritize reuse and maintainability.
-
-When implementing new features or fixing bugs:
-
-1. Before writing new code, search the existing codebase for similar logic, components, hooks, services, API wrappers, utility functions, constants, and types.
-
-2. Do not duplicate existing logic. If similar logic already exists, reuse it directly or extract it into a shared module.
-
-3. If the same logic appears in two or more places, refactor it into a reusable function, hook, component, service, or utility module.
-
-4. Keep reusable code in appropriate shared locations, for example:
-
-   * `src/lib/`
-   * `src/utils/`
-   * `src/services/`
-   * `src/hooks/`
-   * `src/components/`
-   * `src/types/`
-   * `src/constants/`
-
-5. Do not create large single files. Split large files by responsibility.
-
-6. Do not add a new API request implementation if an existing API client, service, or request helper can be extended.
-
-7. Do not hardcode repeated strings, model names, API paths, status values, or configuration values. Put them into shared constants or config files.
-
-8. Prefer small, focused modules over large mixed-purpose files.
-
-9. Before completing a task, check whether the new code introduced duplication. If duplication exists, refactor it before finishing.
-
-10. When modifying existing behavior, preserve the current public API, data shape, and UI behavior unless the task explicitly requires a change.
-
-11. If refactoring is needed but risky, first explain the refactor plan, then make small safe changes.
-
-12. After changes, summarize:
-
-* which existing code was reused;
-* which duplicate logic was removed;
-* which shared modules were added or updated;
-* which files were changed.
+1. 写新代码前，先搜索现有代码库中是否有相似逻辑。
+2. 不要重复已有逻辑，直接复用或提取为共享模块。
+3. 同一逻辑出现在两处以上时，重构为可复用函数/组件。
+4. 共享代码放在 `lib/`、`scripts/` 等合适位置。
+5. 不要创建大文件，按职责拆分。
+6. 不要硬编码模型名、API 路径、状态值等，使用共享常量。
+7. 修改现有行为时，保持公共 API、数据结构和 UI 行为不变，除非任务明确要求。

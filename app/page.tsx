@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
-import { Suspense, useEffect, useMemo, useRef, useState } from "react";
+import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import {
   MODEL_CATALOG,
   estimateCredits,
@@ -14,9 +14,36 @@ import {
 } from "@/lib/model-catalog";
 import "./home.css";
 
-type HomeMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type HomeMode = Extract<GenerationKind, "image" | "video">;
-type IconName = "home" | "folder" | "settings" | "nodes" | "mic" | "image" | "upload" | "spark" | "send" | "box";
+type TaskStatus = "pending" | "submitting" | "queued" | "processing" | "downloading" | "completed" | "failed" | "cancelled" | "timeout" | string;
+type HomeTask = {
+  id: string;
+  taskId?: string;
+  kind: HomeMode;
+  status: TaskStatus;
+  prompt: string;
+  model: string;
+  ratio: CanvasRatio;
+  resolution: CanvasResolution;
+  duration?: number;
+  outputUrl?: string;
+  error?: string;
+};
+type HomeMessage =
+  | { id: string; role: "user"; content: string }
+  | { id: string; role: "task"; task: HomeTask };
+type IconName =
+  | "home"
+  | "settings"
+  | "nodes"
+  | "mic"
+  | "image"
+  | "upload"
+  | "spark"
+  | "send"
+  | "box"
+  | "chevron-left"
+  | "chevron-right";
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
 type SpeechRecognitionLike = {
@@ -30,11 +57,22 @@ type SpeechRecognitionLike = {
   stop: () => void;
 };
 type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
+type PublicTaskResponse = {
+  id?: string;
+  taskId?: string;
+  type?: string;
+  status?: TaskStatus;
+  outputUrl?: string;
+  error?: string;
+  errorCode?: string;
+  syncError?: string | null;
+};
 
 const HOME_LOGO = "/assets/genora-logo.png";
 const MODEL_COUNT = MODEL_CATALOG.length;
 const RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 const RESOLUTIONS: CanvasResolution[] = ["480p", "720p", "1080p", "1k", "2k", "4k", "adaptive"];
+const ACTIVE_TASK_STATUSES = new Set(["pending", "submitting", "queued", "processing", "downloading"]);
 const MOTION_PRESETS = [
   { id: "auto", label: "自动镜头" },
   { id: "push-in", label: "缓慢推进" },
@@ -71,10 +109,37 @@ function optionLabel(value: CanvasResolution) {
   return value === "adaptive" ? "自适应" : value.toUpperCase();
 }
 
+function statusLabel(status: TaskStatus) {
+  switch (status) {
+    case "pending": return "等待提交";
+    case "submitting": return "提交中";
+    case "queued": return "排队中";
+    case "processing": return "生成中";
+    case "downloading": return "下载结果";
+    case "completed": return "已完成";
+    case "failed": return "生成失败";
+    case "cancelled": return "已取消";
+    case "timeout": return "生成超时";
+    default: return String(status || "生成中");
+  }
+}
+
+function responseError(body: Record<string, unknown>, fallback: string) {
+  return String(body.errorCode ?? body.error ?? body.detail ?? fallback);
+}
+
+function fileToDataUrl(file: File) {
+  return new Promise<string>((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("READ_FILE_FAILED"));
+    reader.readAsDataURL(file);
+  });
+}
+
 function Icon({ name }: { name: IconName }) {
   const paths: Record<IconName, React.ReactNode> = {
     home: <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" />,
-    folder: <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5h4l2 2h7A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />,
     settings: (
       <>
         <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
@@ -111,6 +176,8 @@ function Icon({ name }: { name: IconName }) {
         <path d="m5 7 7 4 7-4M12 11v8" />
       </>
     ),
+    "chevron-left": <path d="m15 18-6-6 6-6" />,
+    "chevron-right": <path d="m9 18 6-6-6-6" />,
   };
 
   return (
@@ -120,17 +187,26 @@ function Icon({ name }: { name: IconName }) {
   );
 }
 
+function GenoraMark({ className = "" }: { className?: string }) {
+  return (
+    <i className={`genora-mark ${className}`}>
+      <img src={HOME_LOGO} alt="" />
+    </i>
+  );
+}
+
 function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
+  const pollTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mode, setMode] = useState<HomeMode>("image");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<HomeMessage[]>([]);
-  const [agentBusy, setAgentBusy] = useState(false);
+  const [generationBusy, setGenerationBusy] = useState(false);
   const [voiceBusy, setVoiceBusy] = useState(false);
   const [voiceError, setVoiceError] = useState("");
   const [imageModelId, setImageModelId] = useState("agnes-image-2.1-flash");
@@ -140,6 +216,7 @@ function HomePageContent() {
   const [duration, setDuration] = useState(5);
   const [motionPreset, setMotionPreset] = useState("auto");
   const [imagePreview, setImagePreview] = useState<string>();
+  const [imageFile, setImageFile] = useState<File>();
 
   const imageModels = useMemo(() => modelsForKind("image"), []);
   const videoModels = useMemo(() => modelsForKind("video"), []);
@@ -147,8 +224,9 @@ function HomePageContent() {
   const selectedModel = selectedModelFor(mode, mode === "image" ? imageModelId : videoModelId);
   const availableResolutions = selectedModel.resolutions.length ? selectedModel.resolutions : RESOLUTIONS;
   const availableRatios = selectedModel.ratios.length ? selectedModel.ratios : RATIOS;
-  const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imagePreview) });
-  const creditLabel = selectedModel.free ? "Free" : `预计 ${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
+  const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imageFile) });
+  const creditLabel = selectedModel.free ? "Free" : `${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
+  const hasGeneration = messages.length > 0;
 
   useEffect(() => {
     const projectId = searchParams.get("project");
@@ -163,6 +241,11 @@ function HomePageContent() {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
   }, [imagePreview]);
 
+  useEffect(() => () => {
+    for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
+    pollTimersRef.current.clear();
+  }, []);
+
   const selectModel = (model: ModelDefinition) => {
     if (model.kind === "image") setImageModelId(model.id);
     else setVideoModelId(model.id);
@@ -172,40 +255,120 @@ function HomePageContent() {
     setModelMenuOpen(false);
   };
 
-  const submitHomePrompt = async () => {
+  const updateGridGlow = (event: PointerEvent<HTMLElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    event.currentTarget.style.setProperty("--grid-x", `${event.clientX - rect.left}px`);
+    event.currentTarget.style.setProperty("--grid-y", `${event.clientY - rect.top}px`);
+  };
+
+  const updateTaskMessage = (messageId: string, patch: Partial<HomeTask>) => {
+    setMessages((current) => current.map((message) => {
+      if (message.role !== "task" || message.id !== messageId) return message;
+      return { ...message, task: { ...message.task, ...patch } };
+    }));
+  };
+
+  const pollHomeTask = (taskId: string, messageId: string) => {
+    const run = async () => {
+      try {
+        const response = await fetch(`/api/tasks/${taskId}`, { cache: "no-store" });
+        const body = await readJson(response) as PublicTaskResponse;
+        if (!response.ok) throw new Error(responseError(body as Record<string, unknown>, "TASK_POLL_FAILED"));
+        const status = body.status ?? "processing";
+        updateTaskMessage(messageId, {
+          status,
+          taskId: body.taskId,
+          outputUrl: body.outputUrl,
+          error: body.errorCode ?? body.error ?? body.syncError ?? undefined,
+        });
+        if (ACTIVE_TASK_STATUSES.has(status)) {
+          const timer = setTimeout(run, 2500);
+          pollTimersRef.current.set(messageId, timer);
+        } else {
+          pollTimersRef.current.delete(messageId);
+        }
+      } catch (error) {
+        updateTaskMessage(messageId, { status: "failed", error: error instanceof Error ? error.message : "任务查询失败" });
+        pollTimersRef.current.delete(messageId);
+      }
+    };
+    const existing = pollTimersRef.current.get(messageId);
+    if (existing) clearTimeout(existing);
+    void run();
+  };
+
+  const submitHomeGeneration = async () => {
     const content = prompt.trim();
-    if (!content || agentBusy) return;
-    setMessages((current) => [...current, { role: "user", content }]);
-    setAgentBusy(true);
+    if (!content || generationBusy) return;
+    const userMessageId = crypto.randomUUID();
+    const taskMessageId = crypto.randomUUID();
+    const taskModel = selectedModel;
+    setMessages((current) => [
+      ...current,
+      { id: userMessageId, role: "user", content },
+      {
+        id: taskMessageId,
+        role: "task",
+        task: {
+          id: taskMessageId,
+          kind: mode,
+          status: "submitting",
+          prompt: content,
+          model: taskModel.label,
+          ratio,
+          resolution,
+          duration: mode === "video" ? duration : undefined,
+        },
+      },
+    ]);
+    setGenerationBusy(true);
 
     try {
-      const context = [
-        "你是 Genora 首页创作 Agent。请根据用户输入、生成类型和模型参数给出可执行创作建议。",
-        "不要跳转页面。请用简洁中文回复，并给出适合继续生成图像或视频的提示词。",
-        "",
-        `生成类型：${modeLabel(mode)}`,
-        `当前模型：${selectedModel.label}`,
-        `比例：${ratio}`,
-        `画质：${optionLabel(resolution)}`,
-        mode === "video" ? `时长：${duration} 秒` : "",
-        mode === "video" ? `镜头方向：${MOTION_PRESETS.find((item) => item.id === motionPreset)?.label ?? motionPreset}` : "",
-        imagePreview ? "用户已上传参考图片。" : "用户未上传参考图片。",
-        "",
-        `用户输入：${content}`,
-      ].filter(Boolean).join("\n");
-      const response = await fetch("/api/agent/generate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ model: "agnes-2.0-flash", prompt: context, messages: [{ role: "user", content: context }] }),
-      });
-      const body = await readJson(response);
-      if (!response.ok) throw new Error(String(body.errorCode ?? body.error ?? "Agent 调用失败"));
-      setMessages((current) => [...current, { role: "assistant", content: String(body.text ?? "已收到，我会基于当前模型参数继续整理创作方案。") }]);
+      let response: Response;
+      if (mode === "image") {
+        const referenceUrls = imageFile && taskModel.supportsReferences ? [await fileToDataUrl(imageFile)] : [];
+        if (imageFile && !taskModel.supportsReferences) throw new Error("当前图像模型不支持参考图，请移除上传图片后重试。");
+        response = await fetch("/api/images/generate", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            prompt: content,
+            model: taskModel.id,
+            ratio,
+            aspectRatio: ratio,
+            resolution,
+            quality: resolution,
+            referenceUrls,
+          }),
+        });
+      } else {
+        const form = new FormData();
+        form.set("prompt", content);
+        form.set("model", taskModel.id);
+        form.set("ratio", ratio);
+        form.set("aspectRatio", ratio);
+        form.set("resolution", resolution);
+        form.set("quality", resolution);
+        form.set("duration", String(duration));
+        const motion = MOTION_PRESETS.find((item) => item.id === motionPreset);
+        if (motion) form.set("motionPreset", motion.id);
+        if (imageFile) form.set("startFrame", imageFile, imageFile.name);
+        response = await fetch("/api/videos/generate", { method: "POST", body: form });
+      }
+      const body = await readJson(response) as PublicTaskResponse;
+      if (!response.ok) throw new Error(responseError(body as Record<string, unknown>, "GENERATION_FAILED"));
+      if (!body.id) throw new Error("GENERATION_TASK_MISSING");
+      updateTaskMessage(taskMessageId, { id: body.id, status: body.status ?? "queued", outputUrl: body.outputUrl });
+      if (body.outputUrl || body.status === "completed") {
+        updateTaskMessage(taskMessageId, { status: "completed" });
+      } else {
+        pollHomeTask(body.id, taskMessageId);
+      }
       setPrompt("");
     } catch (error) {
-      setMessages((current) => [...current, { role: "assistant", content: error instanceof Error ? error.message : "Agent 调用失败", error: true }]);
+      updateTaskMessage(taskMessageId, { status: "failed", error: error instanceof Error ? error.message : "生成失败" });
     } finally {
-      setAgentBusy(false);
+      setGenerationBusy(false);
     }
   };
 
@@ -245,45 +408,65 @@ function HomePageContent() {
   const selectImage = (file?: File) => {
     if (!file) return;
     if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImageFile(file);
     setImagePreview(URL.createObjectURL(file));
   };
 
   return (
-    <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
+    <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${hasGeneration ? "has-generation" : ""}`}>
       <aside className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
         <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
-          <img src={HOME_LOGO} alt="" />
+          <GenoraMark />
           <span>Genora</span>
         </Link>
         <nav aria-label="主导航">
           <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
-          <Link className="logo-button" href="/database" title="数据库" data-label="数据库"><Icon name="folder" /><span>数据库</span></Link>
-          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
           <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
         </nav>
-        <button className="home-collapse logo-button" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
-          <img src={HOME_LOGO} alt="" />
-          <span>{sidebarCollapsed ? "展开" : "收起"}</span>
-        </button>
+        <div className="home-sidebar-bottom">
+          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
+          <button className="home-collapse" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
+            <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
+            <span>{sidebarCollapsed ? "展开" : "收起"}</span>
+          </button>
+        </div>
       </aside>
 
-      <section className="home-main">
+      <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />
         <section className="home-stage" aria-label="对话区域">
-          {!messages.length && (
+          {!hasGeneration && (
             <div className="home-stage-empty">
-              <img src={HOME_LOGO} alt="" />
-              <h1>今天要做点什么？</h1>
+              <GenoraMark className="stage-mark" />
+              <h1 className="home-shell-title">今天要做点什么？</h1>
               <span>已接入 {MODEL_COUNT} 个创作模型</span>
             </div>
           )}
-          {messages.map((message, index) => (
-            <article key={`${message.role}-${index}`} className={`home-message ${message.role} ${message.error ? "error" : ""}`}>{message.content}</article>
+          {messages.map((message) => (
+            message.role === "user" ? (
+              <article key={message.id} className="home-message user">{message.content}</article>
+            ) : (
+              <article key={message.id} className={`home-task-card ${message.task.kind} ${message.task.status}`}>
+                <header>
+                  <span>{modeLabel(message.task.kind)}</span>
+                  <b>{statusLabel(message.task.status)}</b>
+                </header>
+                <p>{message.task.prompt}</p>
+                {message.task.outputUrl && message.task.kind === "image" && <img src={message.task.outputUrl} alt={message.task.prompt} />}
+                {message.task.outputUrl && message.task.kind === "video" && <video src={message.task.outputUrl} controls />}
+                {message.task.error && <em>{message.task.error}</em>}
+                <footer>
+                  <span>{message.task.model}</span>
+                  <span>{message.task.ratio}</span>
+                  <span>{optionLabel(message.task.resolution)}</span>
+                  {message.task.duration && <span>{message.task.duration} 秒</span>}
+                </footer>
+              </article>
+            )
           ))}
-          {agentBusy && <article className="home-message assistant">正在思考...</article>}
         </section>
 
-        <section className="home-composer-dock" aria-label="创作对话框">
+        <section className={`home-composer-dock ${hasGeneration ? "has-generation" : ""}`} aria-label="创作对话框">
           <div className="home-mode-tabs">
             <button type="button" className={mode === "image" ? "active" : ""} onClick={() => { setMode("image"); setModelMenuOpen(false); }}><Icon name="image" />图像生成</button>
             <button type="button" className={mode === "video" ? "active" : ""} onClick={() => { setMode("video"); setModelMenuOpen(false); }}><Icon name="spark" />视频生成</button>
@@ -321,7 +504,7 @@ function HomePageContent() {
               onKeyDown={(event) => {
                 if (event.key === "Enter" && !event.shiftKey) {
                   event.preventDefault();
-                  void submitHomePrompt();
+                  void submitHomeGeneration();
                 }
               }}
             />
@@ -348,9 +531,9 @@ function HomePageContent() {
                 </select>
               </div>
               <div className="home-composer-actions">
-                {mode === "video" && <span className="home-credit-pill">{creditLabel}</span>}
+                <span className="home-credit-pill">{creditLabel}</span>
                 <button className={`voice-button ${voiceBusy ? "active" : ""}`} type="button" onClick={() => void startVoiceInput()} title="语音输入"><Icon name="mic" /></button>
-                <button className="submit-button" type="button" onClick={() => void submitHomePrompt()} disabled={agentBusy || !prompt.trim()} title="提交"><Icon name="send" /></button>
+                <button className="submit-button" type="button" onClick={() => void submitHomeGeneration()} disabled={generationBusy || !prompt.trim()} title="生成"><span>生成</span><Icon name="send" /></button>
               </div>
             </div>
           </div>
