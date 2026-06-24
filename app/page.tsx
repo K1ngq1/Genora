@@ -134,9 +134,9 @@ function Icon({ name }: { name: IconName }) {
 
 function GenoraMark({ className = "" }: { className?: string }) {
   return (
-    <span className={`genora-mark ${className}`}>
+    <i className={`genora-mark ${className}`}>
       <img src={HOME_LOGO} alt="" />
-    </span>
+    </i>
   );
 }
 
