@@ -29,6 +29,7 @@ assert.deepEqual(
     prompt: "lowest-cost image test",
     size: "1:1",
     resolution: "1k",
+    quality: "low",
     n: 1,
   },
 );

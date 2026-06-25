@@ -2,6 +2,7 @@ import { AppError } from "./error-codes.ts";
 import { apimartHttpRequest } from "./apimart-http.ts";
 import {
   APIMART_API_BASE,
+  APIMART_DEV_IMAGE_MODEL,
   APIMART_DEV_VIDEO_MODEL,
   isApimartDevModel,
 } from "./apimart-models.ts";
@@ -47,7 +48,7 @@ type VideoPayloadOptions = {
 };
 
 export function buildApimartImagePayload(options: ImagePayloadOptions) {
-  return {
+  const payload: Record<string, unknown> = {
     model: options.model,
     prompt: options.prompt,
     size: options.ratio,
@@ -55,6 +56,8 @@ export function buildApimartImagePayload(options: ImagePayloadOptions) {
     n: 1,
     ...(options.imageUrls?.length ? { image_urls: options.imageUrls } : {}),
   };
+  if (options.model === APIMART_DEV_IMAGE_MODEL) payload.quality = "low";
+  return payload;
 }
 
 export function buildApimartVideoPayload(options: VideoPayloadOptions): Record<string, unknown> {

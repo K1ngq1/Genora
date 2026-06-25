@@ -2,8 +2,9 @@ import { APIMART_DEV_IMAGE_MODEL, APIMART_DEV_VIDEO_MODEL } from "./apimart-mode
 
 export type GenerationKind = "image" | "video";
 export type ModelProvider = "apimart" | "agnes";
+export type ModelDeveloper = "google" | "openai" | "bytedance" | "kling" | "happyhorse" | "xai" | "agnes";
 export type CanvasRatio = "1:1" | "4:3" | "3:4" | "16:9" | "9:16";
-export type CanvasResolution = "480p" | "720p" | "1080p" | "1k" | "2k" | "4k" | "adaptive";
+export type CanvasResolution = "480p" | "720p" | "1080p" | "1k" | "2k" | "4k";
 
 type FreePricing = { type: "free" };
 type FixedPricing = {
@@ -22,6 +23,7 @@ export type ModelDefinition = {
   label: string;
   kind: GenerationKind;
   provider: ModelProvider;
+  developer: ModelDeveloper;
   keyScope?: "dev";
   free: boolean;
   ratios: CanvasRatio[];
@@ -41,25 +43,25 @@ const ALL_RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 
 export const MODEL_CATALOG: ModelDefinition[] = [
   {
-    id: "gemini-2.5-flash-image-preview", label: "Gemini 2.5 Flash", kind: "image", provider: "apimart", free: false,
-    ratios: ALL_RATIOS, resolutions: ["adaptive"], defaultRatio: "1:1", defaultResolution: "adaptive",
+    id: "gemini-2.5-flash-image-preview", label: "Gemini 2.5 Flash", kind: "image", provider: "apimart", developer: "google", free: false,
+    ratios: ALL_RATIOS, resolutions: ["1k"], defaultRatio: "1:1", defaultResolution: "1k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
-    pricing: { type: "fixed", credits: { "adaptive": 0.125 } },
+    pricing: { type: "fixed", credits: { "1k": 0.125 } },
   },
   {
-    id: "gpt-image-2", label: "GPT Image 2", kind: "image", provider: "apimart", free: false,
-    ratios: ALL_RATIOS, resolutions: ["1k", "2k"], defaultRatio: "1:1", defaultResolution: "1k",
+    id: "gpt-image-2", label: "GPT Image 2", kind: "image", provider: "apimart", developer: "openai", free: false,
+    ratios: ALL_RATIOS, resolutions: ["1k", "2k", "4k"], defaultRatio: "1:1", defaultResolution: "1k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
     pricing: { type: "fixed", credits: { "1k": 0.06, "2k": 0.12, "4k": 0.18 } },
   },
   {
-    id: APIMART_DEV_IMAGE_MODEL, label: "GPT Image 2 Official · Dev", kind: "image", provider: "apimart", keyScope: "dev", free: false,
-    ratios: ["1:1"], resolutions: ["adaptive"], defaultRatio: "1:1", defaultResolution: "adaptive",
+    id: APIMART_DEV_IMAGE_MODEL, label: "GPT Image 2 Official · Dev", kind: "image", provider: "apimart", developer: "openai", keyScope: "dev", free: false,
+    ratios: ["1:1"], resolutions: ["1k"], defaultRatio: "1:1", defaultResolution: "1k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
-    pricing: { type: "fixed", credits: { "adaptive": 0.0488 }, inputCredits: { "adaptive": 0.08508 } },
+    pricing: { type: "fixed", credits: { "1k": 0.0488 }, inputCredits: { "1k": 0.08508 } },
   },
   {
-    id: "doubao-seedance-2.0", label: "Seedance 2.0", kind: "video", provider: "apimart", free: false,
+    id: "doubao-seedance-2.0", label: "Seedance 2.0", kind: "video", provider: "apimart", developer: "bytedance", free: false,
     ratios: ALL_RATIOS, resolutions: ["480p", "720p", "1080p"], defaultRatio: "16:9", defaultResolution: "720p",
     minDuration: 4, maxDuration: 15, supportsStartFrame: true, supportsEndFrame: true, supportsReferences: true, supportsNegativePrompt: false,
     pricing: {
@@ -69,30 +71,30 @@ export const MODEL_CATALOG: ModelDefinition[] = [
     },
   },
   {
-    id: "kling-v3-omni", label: "Kling v3 Omni", kind: "video", provider: "apimart", free: false,
+    id: "kling-v3-omni", label: "Kling v3 Omni", kind: "video", provider: "apimart", developer: "kling", free: false,
     ratios: ["1:1", "16:9", "9:16"], resolutions: ["720p", "1080p"], defaultRatio: "16:9", defaultResolution: "720p",
     minDuration: 3, maxDuration: 15, supportsStartFrame: true, supportsEndFrame: true, supportsReferences: true, supportsNegativePrompt: true,
     pricing: { type: "per-second", credits: { "720p": 0.672, "1080p": 0.896 } },
   },
   {
-    id: "happyhorse-1.0", label: "HappyHorse 1.0", kind: "video", provider: "apimart", free: false,
+    id: "happyhorse-1.0", label: "HappyHorse 1.0", kind: "video", provider: "apimart", developer: "happyhorse", free: false,
     ratios: ALL_RATIOS, resolutions: ["720p", "1080p"], defaultRatio: "16:9", defaultResolution: "720p",
     minDuration: 3, maxDuration: 15, supportsStartFrame: true, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
     pricing: { type: "per-second", credits: { "720p": 1.3, "1080p": 2.3 } },
   },
   {
-    id: APIMART_DEV_VIDEO_MODEL, label: "Grok Imagine 1.5 Video · Dev", kind: "video", provider: "apimart", keyScope: "dev", free: false,
+    id: APIMART_DEV_VIDEO_MODEL, label: "Grok Imagine 1.5 Video · Dev", kind: "video", provider: "apimart", developer: "xai", keyScope: "dev", free: false,
     ratios: ["1:1", "16:9", "9:16"], resolutions: ["480p", "720p"], defaultRatio: "16:9", defaultResolution: "480p",
     minDuration: 6, maxDuration: 30, supportsStartFrame: true, supportsEndFrame: false, supportsReferences: true, supportsNegativePrompt: false,
     pricing: { type: "per-second", credits: { "480p": 0.07, "720p": 0.07 } },
   },
   {
-    id: "agnes-image-2.1-flash", label: "Agnes Image 2.1 Flash", kind: "image", provider: "agnes", free: true,
+    id: "agnes-image-2.1-flash", label: "Agnes Image 2.1 Flash", kind: "image", provider: "agnes", developer: "agnes", free: true,
     ratios: ALL_RATIOS, resolutions: ["1k", "2k"], defaultRatio: "1:1", defaultResolution: "2k",
     supportsStartFrame: false, supportsEndFrame: false, supportsReferences: false, supportsNegativePrompt: false, pricing: { type: "free" },
   },
   {
-    id: "agnes-video-v2.0", label: "Agnes Video V2.0", kind: "video", provider: "agnes", free: true,
+    id: "agnes-video-v2.0", label: "Agnes Video V2.0", kind: "video", provider: "agnes", developer: "agnes", free: true,
     ratios: ALL_RATIOS, resolutions: ["720p", "1k"], defaultRatio: "16:9", defaultResolution: "1k",
     minDuration: 1, maxDuration: 18, supportsStartFrame: true, supportsEndFrame: true, supportsReferences: true, supportsNegativePrompt: true, pricing: { type: "free" },
   },
@@ -133,7 +135,11 @@ export function estimateCredits(options: { model: string; resolution: string; du
 }
 
 export function modelCapabilityLabel(model: ModelDefinition) {
-  const resolution = model.resolutions.map((item) => item === "adaptive" ? "自适应" : item.toUpperCase()).join(" / ");
+  const resolution = model.resolutions.map((item) => item.toUpperCase()).join(" / ");
   if (model.kind === "image") return resolution;
   return `${resolution} · ${model.minDuration}-${model.maxDuration}s`;
+}
+
+export function modelChannelLabel(model: ModelDefinition) {
+  return model.provider === "apimart" ? "APIMart" : "Agnes";
 }

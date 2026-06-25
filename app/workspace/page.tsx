@@ -67,7 +67,15 @@ type IconName =
   | "ellipsis"
   | "chevron"
   | "copy"
-  | "trash";
+  | "trash"
+  | "model-wave"
+  | "model-bars"
+  | "model-google"
+  | "model-openai"
+  | "model-kling"
+  | "model-horse"
+  | "model-agnes"
+  | "model-xai";
 
 type WorkData = {
   kind: Kind;
@@ -231,7 +239,7 @@ function imageSize(ratio: Ratio, quality: Quality) {
 }
 
 function qualityLabel(quality: Quality) {
-  return quality === "adaptive" ? "自适应" : quality.toUpperCase();
+  return quality.toUpperCase();
 }
 
 function fileToDataUrl(file: File) {
@@ -388,6 +396,18 @@ function Icon({ name }: { name: IconName }) {
     chevron: <path d="m9 18 6-6-6-6" />,
     copy: <path d="M8 8h10v10H8zM6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
     trash: <path d="M4 7h16m-10 4v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />,
+    "model-wave": <path d="M3.5 14c3.2-5.8 11.8-7.2 14.8-4.8 1.9 1.5-1.3 3.1-5.2 3.5-4.5.5-7.8 1.9-6.8 3.5 1.4 2.1 7.5 1.2 14.2-1.6" />,
+    "model-bars": (
+      <>
+        <path d="M5 6v12M9.5 9v6M14 4v16M18.5 8v8" />
+      </>
+    ),
+    "model-google": <path d="M20 12.2c0 4.6-3.1 7.8-7.7 7.8A8 8 0 1 1 18 6.4l-2.2 2.1A4.8 4.8 0 1 0 17 15h-4.9v-2.8H20Z" />,
+    "model-openai": <path d="M12 3.2 16.6 6v5.3L12 14l-4.6-2.7V6L12 3.2Zm4.6 2.8 3.4 2v5.4l-4.6 2.7-4.6-2.7M7.4 6 4 8v5.4l4.6 2.7 4.6-2.7M4 13.4v4l4.6 2.7 3.4-2M20 13.4v4l-4.6 2.7-3.4-2" />,
+    "model-kling": <path d="M6 4v16M18 4 9 12l9 8M10 12l8-8" />,
+    "model-horse": <path d="M5 17c1.2-5.6 4.4-9.2 9.8-10.8l3.2 2.6-2.3 1.1 1.1 3.1-2.8 1.5-1.8-2.2c-1.9 1.2-3.1 3.1-3.7 5.7M4 20h14" />,
+    "model-agnes": <path d="M12 3 14.4 9.6 21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4Z" />,
+    "model-xai": <path d="M4 4 20 20M20 4 4 20M7 4h10M7 20h10" />,
   };
 
   return (
@@ -395,6 +415,30 @@ function Icon({ name }: { name: IconName }) {
       {paths[name]}
     </svg>
   );
+}
+
+function modelIconName(modelId: string, kind: "image" | "video"): IconName {
+  const id = modelId.toLowerCase();
+  if (id.includes("gemini")) return "model-google";
+  if (id.includes("gpt")) return "model-openai";
+  if (id.includes("kling")) return "model-kling";
+  if (id.includes("happyhorse")) return "model-horse";
+  if (id.includes("grok")) return "model-xai";
+  if (id.includes("agnes")) return "model-agnes";
+  if (id.includes("seedance") || id.includes("doubao")) return "model-bars";
+  return kind === "video" ? "model-bars" : "model-wave";
+}
+
+function modelLogoClass(modelId: string) {
+  const id = modelId.toLowerCase();
+  if (id.includes("gemini")) return "model-logo-google";
+  if (id.includes("gpt")) return "model-logo-openai";
+  if (id.includes("kling")) return "model-logo-kling";
+  if (id.includes("happyhorse")) return "model-logo-horse";
+  if (id.includes("grok")) return "model-logo-xai";
+  if (id.includes("agnes")) return "model-logo-agnes";
+  if (id.includes("seedance") || id.includes("doubao")) return "model-logo-seedance";
+  return "model-logo-generic";
 }
 
 function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
@@ -528,11 +572,11 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
         ) : data.busy && data.kind === "video" ? (
           <div className="node-result-card video-generating">
             <Icon name={meta.icon} />
-            <p className="text-result">{data.result || "生成中"}</p>
+            <p className="text-result" onWheel={(event) => event.stopPropagation()}>{data.result || "生成中"}</p>
           </div>
         ) : data.result ? (
           <div className="node-result-card">
-            <p className="text-result">{data.result}</p>
+            <p className="text-result" onWheel={(event) => event.stopPropagation()}>{data.result}</p>
             {data.canResume && data.kind === "video" && (
               <div className="node-resume-section">
                 <button className="resume-button" onClick={() => data.generate(id)}>
@@ -651,12 +695,13 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             {selectedModel && (
               <div className={`model-picker ${modelOpen ? "open" : ""}`}>
                 <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
-                  <Icon name={meta.icon} />
+                  <span className={`model-logo-mark ${modelLogoClass(selectedModel.id)}`}><Icon name={modelIconName(selectedModel.id, selectedModel.kind)} /></span>
                   <span>{selectedModel.label}</span>
                 </button>
                 {modelOpen && (
                   <div className="model-menu">
                     {availableModels.map((model) => <button type="button" key={model.id} className={selectedModel.id === model.id ? "selected" : ""} onClick={(event) => { event.stopPropagation(); selectModel(model.id); }}>
+                      <span className={`model-logo-mark ${modelLogoClass(model.id)}`}><Icon name={modelIconName(model.id, model.kind)} /></span>
                       <span><b>{model.label}</b><small>{modelCapabilityLabel(model)}</small></span>
                       <em>{model.free ? "Free" : model.id === selectedModel.id ? "✓" : ""}</em>
                     </button>)}

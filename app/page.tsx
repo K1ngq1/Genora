@@ -6,6 +6,8 @@ import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } fro
 import {
   MODEL_CATALOG,
   estimateCredits,
+  modelCapabilityLabel,
+  modelChannelLabel,
   modelsForKind,
   type CanvasRatio,
   type CanvasResolution,
@@ -39,9 +41,21 @@ type IconName =
   | "mic"
   | "image"
   | "upload"
+  | "plus"
   | "spark"
   | "send"
   | "box"
+  | "user"
+  | "log-in"
+  | "download"
+  | "model-google"
+  | "model-openai"
+  | "model-kling"
+  | "model-horse"
+  | "model-xai"
+  | "model-agnes"
+  | "model-bars"
+  | "model-wave"
   | "chevron-left"
   | "chevron-right";
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
@@ -71,7 +85,6 @@ type PublicTaskResponse = {
 const HOME_LOGO = "/assets/genora-logo.png";
 const MODEL_COUNT = MODEL_CATALOG.length;
 const RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
-const RESOLUTIONS: CanvasResolution[] = ["480p", "720p", "1080p", "1k", "2k", "4k", "adaptive"];
 const ACTIVE_TASK_STATUSES = new Set(["pending", "submitting", "queued", "processing", "downloading"]);
 const MOTION_PRESETS = [
   { id: "auto", label: "自动镜头" },
@@ -106,7 +119,7 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
 }
 
 function optionLabel(value: CanvasResolution) {
-  return value === "adaptive" ? "自适应" : value.toUpperCase();
+  return value.toUpperCase();
 }
 
 function statusLabel(status: TaskStatus) {
@@ -168,6 +181,7 @@ function Icon({ name }: { name: IconName }) {
       </>
     ),
     upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
+    plus: <path d="M12 5v14M5 12h14" />,
     spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
     send: <path d="m22 2-7 20-4-9-9-4Z" />,
     box: (
@@ -176,6 +190,22 @@ function Icon({ name }: { name: IconName }) {
         <path d="m5 7 7 4 7-4M12 11v8" />
       </>
     ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />
+      </>
+    ),
+    "log-in": <path d="M10 17l5-5-5-5M15 12H3M14 4h4a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-4" />,
+    download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" />,
+    "model-google": <path d="M20 12.2c0-.7-.1-1.4-.2-2H12v3.8h4.5a3.9 3.9 0 0 1-1.7 2.5v2h2.8c1.6-1.5 2.4-3.7 2.4-6.3ZM12 21c2.4 0 4.4-.8 5.8-2.2l-2.8-2a5.3 5.3 0 0 1-8-2.8H4.1v2.1A8.9 8.9 0 0 0 12 21ZM7 14a5.4 5.4 0 0 1 0-3.9V8H4.1a9 9 0 0 0 0 8.1L7 14ZM12 6.7c1.3 0 2.5.5 3.4 1.3l2.5-2.5A8.6 8.6 0 0 0 12 3a8.9 8.9 0 0 0-7.9 4.9L7 10a5.3 5.3 0 0 1 5-3.3Z" />,
+    "model-openai": <path d="M12 3.2a4 4 0 0 1 3.8 2.7 4 4 0 0 1 4.1 5.9 4 4 0 0 1-3.7 6.4 4 4 0 0 1-6.2 1.6 4 4 0 0 1-4-2.7 4 4 0 0 1-2-7 4 4 0 0 1 3.8-6.3A4 4 0 0 1 12 3.2Zm-3 5.1 6 3.5M9 15.7v-7M15 8.3v7l-6-3.5" />,
+    "model-kling": <path d="M5 4v16M19 4 8 12l11 8M8 12l11-8" />,
+    "model-horse": <path d="M4 17c2.5-6 5-9 9-9h3l3 3-2 2h-3l-2 7M7 17h10M9 8l-2-3M13 8l2-3" />,
+    "model-xai": <path d="m5 5 14 14M19 5 5 19M8 5h4M12 19h4" />,
+    "model-agnes": <path d="M8.2 5.4a4.2 4.2 0 0 1 7.6 0 4.2 4.2 0 0 1 2.8 7.6 4.2 4.2 0 0 1-7.6 2.8A4.2 4.2 0 0 1 3.4 13a4.2 4.2 0 0 1 4.8-7.6Z" />,
+    "model-bars": <path d="M5 19V9m4 10V5m4 14v-7m4 7V8" />,
+    "model-wave": <path d="M3 12c2.5-5 4.5-5 7 0s4.5 5 7 0 2.5-5 4-2" />,
     "chevron-left": <path d="m15 18-6-6 6-6" />,
     "chevron-right": <path d="m9 18 6-6-6-6" />,
   };
@@ -195,13 +225,63 @@ function GenoraMark({ className = "" }: { className?: string }) {
   );
 }
 
+function modelIconName(model: ModelDefinition): IconName {
+  if (model.developer === "google") return "model-google";
+  if (model.developer === "openai") return "model-openai";
+  if (model.developer === "kling") return "model-kling";
+  if (model.developer === "happyhorse") return "model-horse";
+  if (model.developer === "xai") return "model-xai";
+  if (model.developer === "agnes") return "model-agnes";
+  if (model.developer === "bytedance") return "model-bars";
+  const kind = model.kind;
+  return kind === "video" ? "model-bars" : "model-wave";
+}
+
+function modelLogoClass(model: ModelDefinition) {
+  if (model.developer === "google") return "model-logo-google";
+  if (model.developer === "openai") return "model-logo-openai";
+  if (model.developer === "kling") return "model-logo-kling";
+  if (model.developer === "happyhorse") return "model-logo-horse";
+  if (model.developer === "xai") return "model-logo-xai";
+  if (model.developer === "agnes") return "model-logo-agnes";
+  if (model.developer === "bytedance") return "model-logo-seedance";
+  return "model-logo-generic";
+}
+
+async function downloadGeneratedImage(task: HomeTask) {
+  if (!task.outputUrl) return;
+  const fileName = `genora-${task.taskId ?? task.id ?? Date.now()}.png`;
+  const anchor = document.createElement("a");
+  anchor.download = fileName;
+  anchor.rel = "noopener";
+  anchor.style.display = "none";
+  document.body.appendChild(anchor);
+  try {
+    const response = await fetch(task.outputUrl, { cache: "no-store" });
+    if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+    const blob = await response.blob();
+    const objectUrl = URL.createObjectURL(blob);
+    anchor.href = objectUrl;
+    anchor.click();
+    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
+  } catch {
+    anchor.href = task.outputUrl;
+    anchor.target = "_blank";
+    anchor.click();
+  } finally {
+    anchor.remove();
+  }
+}
+
 function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const imageInputRef = useRef<HTMLInputElement>(null);
+  const userPopoverRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pollTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [userPopoverOpen, setUserPopoverOpen] = useState(false);
   const [mode, setMode] = useState<HomeMode>("image");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -222,7 +302,7 @@ function HomePageContent() {
   const videoModels = useMemo(() => modelsForKind("video"), []);
   const currentModels = mode === "image" ? imageModels : videoModels;
   const selectedModel = selectedModelFor(mode, mode === "image" ? imageModelId : videoModelId);
-  const availableResolutions = selectedModel.resolutions.length ? selectedModel.resolutions : RESOLUTIONS;
+  const availableResolutions = selectedModel.resolutions;
   const availableRatios = selectedModel.ratios.length ? selectedModel.ratios : RATIOS;
   const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imageFile) });
   const creditLabel = selectedModel.free ? "Free" : `${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
@@ -245,6 +325,28 @@ function HomePageContent() {
     for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
     pollTimersRef.current.clear();
   }, []);
+
+  useEffect(() => {
+    if (!availableRatios.includes(ratio)) setRatio(selectedModel.defaultRatio);
+    if (!availableResolutions.includes(resolution)) setResolution(selectedModel.defaultResolution);
+  }, [availableRatios, availableResolutions, ratio, resolution, selectedModel.defaultRatio, selectedModel.defaultResolution]);
+
+  useEffect(() => {
+    if (!userPopoverOpen) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if (userPopoverRef.current?.contains(event.target as Node)) return;
+      setUserPopoverOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setUserPopoverOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    document.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      document.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [userPopoverOpen]);
 
   const selectModel = (model: ModelDefinition) => {
     if (model.kind === "image") setImageModelId(model.id);
@@ -424,7 +526,33 @@ function HomePageContent() {
           <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
         </nav>
         <div className="home-sidebar-bottom">
-          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
+          <div className="home-user-anchor" ref={userPopoverRef}>
+            <button
+              className={`logo-button home-user-button ${userPopoverOpen ? "active" : ""}`}
+              type="button"
+              title="用户"
+              data-label="用户"
+              aria-haspopup="dialog"
+              aria-expanded={userPopoverOpen}
+              onClick={() => setUserPopoverOpen((current) => !current)}
+            >
+              <Icon name="user" />
+              <span>用户</span>
+            </button>
+            {userPopoverOpen && (
+              <div className="home-user-popover" role="dialog" aria-label="用户信息">
+                <div className="home-user-card-head">
+                  <span className="home-user-avatar">G</span>
+                  <span>
+                    <b>未登录</b>
+                    <small>登录后可同步账号与创作记录</small>
+                  </span>
+                </div>
+                <Link className="home-user-primary" href="/login" onClick={() => setUserPopoverOpen(false)}><Icon name="log-in" />登录</Link>
+                <Link className="home-user-secondary" href="/settings" onClick={() => setUserPopoverOpen(false)}><Icon name="settings" />设置</Link>
+              </div>
+            )}
+          </div>
           <button className="home-collapse" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
             <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
             <span>{sidebarCollapsed ? "展开" : "收起"}</span>
@@ -452,7 +580,16 @@ function HomePageContent() {
                   <b>{statusLabel(message.task.status)}</b>
                 </header>
                 <p>{message.task.prompt}</p>
-                {message.task.outputUrl && message.task.kind === "image" && <img src={message.task.outputUrl} alt={message.task.prompt} />}
+                {message.task.outputUrl && message.task.kind === "image" && (
+                  <div className="home-task-media">
+                    <img src={message.task.outputUrl} alt={message.task.prompt} />
+                    {message.task.status === "completed" && (
+                      <button className="home-download-button" type="button" onClick={() => void downloadGeneratedImage(message.task)} title="下载图片" aria-label="下载图片">
+                        <Icon name="download" />
+                      </button>
+                    )}
+                  </div>
+                )}
                 {message.task.outputUrl && message.task.kind === "video" && <video src={message.task.outputUrl} controls />}
                 {message.task.error && <em>{message.task.error}</em>}
                 <footer>
@@ -478,7 +615,7 @@ function HomePageContent() {
 
           <input ref={imageInputRef} hidden type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])} />
           <button className="home-upload-strip" type="button" onClick={() => imageInputRef.current?.click()}>
-            {imagePreview ? <img src={imagePreview} alt="" /> : <><Icon name="upload" />上传图片</>}
+            {imagePreview ? <img src={imagePreview} alt="" /> : <Icon name="plus" />}
           </button>
 
           {mode === "video" && (
@@ -511,23 +648,30 @@ function HomePageContent() {
             <div className="home-composer-footer">
               <div className="home-footer-controls">
                 <div className="home-model-picker">
-                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}><Icon name="box" />{selectedModel.label}</button>
+                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}>
+                    <span className={`home-model-logo ${modelLogoClass(selectedModel)}`}><Icon name={modelIconName(selectedModel)} /></span>
+                    <span>{selectedModel.label}</span>
+                  </button>
                   {modelMenuOpen && (
                     <div className="home-model-menu">
                       {currentModels.map((model) => (
                         <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
-                          <span>{model.label}</span>
-                          <small>{model.free ? "Free" : model.provider}</small>
+                          <span className={`home-model-logo ${modelLogoClass(model)}`}><Icon name={modelIconName(model)} /></span>
+                          <span className="home-model-copy">
+                            <b>{model.label}</b>
+                            <small>{modelCapabilityLabel(model)}</small>
+                          </span>
+                          <em>{model.free ? "Free" : modelChannelLabel(model)}</em>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
                 <select className="home-ratio-select" value={ratio} onChange={(event) => setRatio(event.target.value as CanvasRatio)}>
-                  {RATIOS.map((item) => <option key={item} value={item} disabled={!availableRatios.includes(item)}>{item}</option>)}
+                  {availableRatios.map((item) => <option key={item} value={item}>{item}</option>)}
                 </select>
                 <select className="home-resolution-select" value={resolution} onChange={(event) => setResolution(event.target.value as CanvasResolution)}>
-                  {RESOLUTIONS.map((item) => <option key={item} value={item} disabled={!availableResolutions.includes(item)}>{optionLabel(item)}</option>)}
+                  {availableResolutions.map((item) => <option key={item} value={item}>{optionLabel(item)}</option>)}
                 </select>
               </div>
               <div className="home-composer-actions">
