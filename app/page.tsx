@@ -12,10 +12,12 @@ import {
   type GenerationKind,
   type ModelDefinition,
 } from "@/lib/model-catalog";
+import { isActiveTaskStatus, type TaskStatus as KnownTaskStatus } from "@/lib/task-status";
+import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
 import "./home.css";
 
 type HomeMode = Extract<GenerationKind, "image" | "video">;
-type TaskStatus = "pending" | "submitting" | "queued" | "processing" | "downloading" | "completed" | "failed" | "cancelled" | "timeout" | string;
+type TaskStatus = KnownTaskStatus | string;
 type HomeTask = {
   id: string;
   taskId?: string;
@@ -72,7 +74,6 @@ const HOME_LOGO = "/assets/genora-logo.png";
 const MODEL_COUNT = MODEL_CATALOG.length;
 const RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 const RESOLUTIONS: CanvasResolution[] = ["480p", "720p", "1080p", "1k", "2k", "4k", "adaptive"];
-const ACTIVE_TASK_STATUSES = new Set(["pending", "submitting", "queued", "processing", "downloading"]);
 const MOTION_PRESETS = [
   { id: "auto", label: "自动镜头" },
   { id: "push-in", label: "缓慢推进" },
@@ -281,8 +282,8 @@ function HomePageContent() {
           outputUrl: body.outputUrl,
           error: body.errorCode ?? body.error ?? body.syncError ?? undefined,
         });
-        if (ACTIVE_TASK_STATUSES.has(status)) {
-          const timer = setTimeout(run, 2500);
+        if (isActiveTaskStatus(status)) {
+          const timer = setTimeout(run, HOME_TASK_POLL_INTERVAL_MS);
           pollTimersRef.current.set(messageId, timer);
         } else {
           pollTimersRef.current.delete(messageId);

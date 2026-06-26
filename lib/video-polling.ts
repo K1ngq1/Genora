@@ -1,3 +1,1 @@
-export const VIDEO_POLL_INTERVAL_MS = 3_000;
-export const VIDEO_POLL_MAX_ATTEMPTS = 600;
-export const VIDEO_POLL_MAX_DURATION_MS = VIDEO_POLL_INTERVAL_MS * VIDEO_POLL_MAX_ATTEMPTS;
+export * from "../features/tasks/polling.ts";
