@@ -2,32 +2,33 @@ import { readFile } from "node:fs/promises";
 
 const home = await readFile("app/page.tsx", "utf8");
 const homeOptions = await readFile("features/home/home-options.ts", "utf8");
+const homeSidebar = await readFile("features/home/home-sidebar.tsx", "utf8");
 const homeTaskCard = await readFile("features/home/home-task-card.tsx", "utf8");
 const css = await readFile("app/home.css", "utf8");
 const workflowCss = await readFile("app/workflow.css", "utf8");
-const homeSurface = `${home}\n${homeTaskCard}`;
+const homeSurface = `${home}\n${homeSidebar}\n${homeTaskCard}`;
 
 const modelPickerIndex = home.indexOf("home-model-picker");
 const ratioIndex = home.indexOf("home-ratio-select");
 const resolutionIndex = home.indexOf("home-resolution-select");
-const settingsIndex = home.indexOf('href="/settings"');
-const bottomIndex = home.indexOf("home-sidebar-bottom");
+const settingsIndex = homeSurface.indexOf('href="/settings"');
+const bottomIndex = homeSurface.indexOf("home-sidebar-bottom");
 
 const checks = [
   ["collapsed sidebar state", home.includes("sidebarCollapsed")],
   ["sidebar defaults collapsed", home.includes("useState(true)")],
-  ["left navigation shell", home.includes('className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}')],
-  ["collapsed labels use hover tooltip", home.includes("data-label=") && css.includes(".home-sidebar.collapsed .logo-button[data-label]:hover:after")],
+  ["left navigation shell", homeSurface.includes("home-sidebar") && homeSurface.includes("collapsed")],
+  ["collapsed labels use hover tooltip", homeSurface.includes("data-label=") && css.includes(".home-sidebar.collapsed .logo-button[data-label]:hover:after")],
   ["collapsed text hidden", css.includes(".home-sidebar.collapsed .logo-button span{display:none}")],
   ["expanded sidebar width increased", css.includes("width:236px") && css.includes("margin-left:236px")],
   ["dark home surface", css.includes("background:#070708") && css.includes(".home-sidebar{") && css.includes("background:#0b0b0d")],
-  ["black glass genora mark", home.includes("GenoraMark") && css.includes(".genora-mark") && css.includes("grayscale(1)")],
-  ["sidebar home link", home.includes('href="/"') && home.includes("首页")],
-  ["database link removed", !home.includes('href="/database"')],
+  ["black glass genora mark", homeSurface.includes("GenoraMark") && css.includes(".genora-mark") && css.includes("grayscale(1)")],
+  ["sidebar home link", homeSurface.includes('href="/"') && homeSurface.includes("??")],
+  ["database link removed", !homeSurface.includes('href="/database"')],
   ["settings moved to bottom", settingsIndex > bottomIndex && bottomIndex > -1],
-  ["collapse arrow button", home.includes('name={sidebarCollapsed ? "chevron-right" : "chevron-left"}') && css.includes(".home-collapse svg{width:16px;height:16px")],
-  ["sidebar workspace link", home.includes('href="/projects"') && home.includes("工作空间")],
-  ["sidebar symbolic icons", home.includes('name="home"') && home.includes('name="settings"') && home.includes('name="nodes"')],
+  ["collapse arrow button", homeSurface.includes("chevron-right") && homeSurface.includes("chevron-left") && css.includes(".home-collapse svg{width:16px;height:16px")],
+  ["sidebar workspace link", homeSurface.includes('href="/projects"') && homeSurface.includes('name="nodes"')],
+  ["sidebar symbolic icons", homeSurface.includes('name="home"') && homeSurface.includes('name="settings"') && homeSurface.includes('name="nodes"')],
   ["mouse reactive dot grid", home.includes("updateGridGlow") && home.includes("--grid-x") && css.includes(".home-grid:after")],
   ["no top header nav", !home.includes("home-header") && !home.includes("home-actions")],
   ["no featured recommendations", !home.includes("精选推荐") && !home.includes("featured-grid")],

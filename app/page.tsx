@@ -1,6 +1,5 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDefinition } from "@/lib/model-catalog";
@@ -19,6 +18,7 @@ import {
 } from "@/features/home/home-options";
 import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
+import { HomeSidebar } from "@/features/home/home-sidebar";
 import { HomeTaskCard } from "@/features/home/home-task-card";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import type { HomeMessage, HomeTask } from "@/features/home/home-types";
@@ -243,23 +243,7 @@ function HomePageContent() {
 
   return (
     <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${hasGeneration ? "has-generation" : ""}`}>
-      <aside className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
-          <GenoraMark />
-          <span>Genora</span>
-        </Link>
-        <nav aria-label="主导航">
-          <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
-          <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
-        </nav>
-        <div className="home-sidebar-bottom">
-          <Link className="logo-button" href="/settings" title="设置" data-label="设置"><Icon name="settings" /><span>设置</span></Link>
-          <button className="home-collapse" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
-            <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
-            <span>{sidebarCollapsed ? "展开" : "收起"}</span>
-          </button>
-        </div>
-      </aside>
+      <HomeSidebar collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((current) => !current)} />
 
       <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />
