@@ -6,7 +6,6 @@ import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDef
 import { isActiveTaskStatus } from "@/lib/task-status";
 import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
 import {
-  MODEL_COUNT,
   MOTION_PRESETS,
   RATIOS,
   RESOLUTIONS,
@@ -19,7 +18,7 @@ import {
 import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
 import { HomeSidebar } from "@/features/home/home-sidebar";
-import { HomeTaskCard } from "@/features/home/home-task-card";
+import { HomeStage } from "@/features/home/home-stage";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import type { HomeMessage, HomeTask } from "@/features/home/home-types";
 import "./home.css";
@@ -247,22 +246,7 @@ function HomePageContent() {
 
       <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />
-        <section className="home-stage" aria-label="对话区域">
-          {!hasGeneration && (
-            <div className="home-stage-empty">
-              <GenoraMark className="stage-mark" />
-              <h1 className="home-shell-title">今天要做点什么？</h1>
-              <span>已接入 {MODEL_COUNT} 个创作模型</span>
-            </div>
-          )}
-          {messages.map((message) => (
-            message.role === "user" ? (
-              <article key={message.id} className="home-message user">{message.content}</article>
-            ) : (
-              <HomeTaskCard key={message.id} task={message.task} />
-            )
-          ))}
-        </section>
+        <HomeStage hasGeneration={hasGeneration} messages={messages} />
 
         <section className={`home-composer-dock ${hasGeneration ? "has-generation" : ""}`} aria-label="创作对话框">
           <div className="home-mode-tabs">

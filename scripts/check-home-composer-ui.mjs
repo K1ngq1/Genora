@@ -3,10 +3,11 @@ import { readFile } from "node:fs/promises";
 const home = await readFile("app/page.tsx", "utf8");
 const homeOptions = await readFile("features/home/home-options.ts", "utf8");
 const homeSidebar = await readFile("features/home/home-sidebar.tsx", "utf8");
+const homeStage = await readFile("features/home/home-stage.tsx", "utf8");
 const homeTaskCard = await readFile("features/home/home-task-card.tsx", "utf8");
 const css = await readFile("app/home.css", "utf8");
 const workflowCss = await readFile("app/workflow.css", "utf8");
-const homeSurface = `${home}\n${homeSidebar}\n${homeTaskCard}`;
+const homeSurface = `${home}\n${homeSidebar}\n${homeStage}\n${homeTaskCard}`;
 
 const modelPickerIndex = home.indexOf("home-model-picker");
 const ratioIndex = home.indexOf("home-ratio-select");
@@ -32,8 +33,8 @@ const checks = [
   ["mouse reactive dot grid", home.includes("updateGridGlow") && home.includes("--grid-x") && css.includes(".home-grid:after")],
   ["no top header nav", !home.includes("home-header") && !home.includes("home-actions")],
   ["no featured recommendations", !home.includes("精选推荐") && !home.includes("featured-grid")],
-  ["empty stage", home.includes("home-stage") && home.includes("今天要做点什么？")],
-  ["compact media composer", home.includes("home-shell-title") && css.includes(".home-composer-dock.has-generation") && css.includes("min-height:72px")],
+  ["empty stage", homeSurface.includes("home-stage") && homeSurface.includes("home-stage-empty")],
+  ["compact media composer", homeSurface.includes("home-shell-title") && css.includes(".home-composer-dock.has-generation") && css.includes("min-height:72px")],
   ["image generation mode", home.includes("图像生成")],
   ["video generation mode", home.includes("视频生成")],
   ["only image and video modes", !home.includes("数字人") && !home.includes("动作模仿")],
