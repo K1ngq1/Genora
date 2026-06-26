@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
 import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDefinition } from "@/lib/model-catalog";
-import { isActiveTaskStatus, type TaskStatus as KnownTaskStatus } from "@/lib/task-status";
+import { isActiveTaskStatus } from "@/lib/task-status";
 import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
 import {
   MODEL_COUNT,
@@ -22,25 +22,8 @@ import {
 import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
+import type { HomeMessage, HomeTask } from "@/features/home/home-types";
 import "./home.css";
-
-type TaskStatus = KnownTaskStatus | string;
-type HomeTask = {
-  id: string;
-  taskId?: string;
-  kind: HomeMode;
-  status: TaskStatus;
-  prompt: string;
-  model: string;
-  ratio: CanvasRatio;
-  resolution: CanvasResolution;
-  duration?: number;
-  outputUrl?: string;
-  error?: string;
-};
-type HomeMessage =
-  | { id: string; role: "user"; content: string }
-  | { id: string; role: "task"; task: HomeTask };
 
 function HomePageContent() {
   const router = useRouter();
