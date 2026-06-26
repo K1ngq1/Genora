@@ -19,6 +19,7 @@ import {
   statusLabel,
   type HomeMode,
 } from "@/features/home/home-options";
+import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import "./home.css";
@@ -40,30 +41,6 @@ type HomeTask = {
 type HomeMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "task"; task: HomeTask };
-type PublicTaskResponse = {
-  id?: string;
-  taskId?: string;
-  type?: string;
-  status?: TaskStatus;
-  outputUrl?: string;
-  error?: string;
-  errorCode?: string;
-  syncError?: string | null;
-};
-
-async function readJson(response: Response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("READ_FILE_FAILED"));
-    reader.readAsDataURL(file);
-  });
-}
 
 function HomePageContent() {
   const router = useRouter();
