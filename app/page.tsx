@@ -7,7 +7,6 @@ import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDef
 import { isActiveTaskStatus, type TaskStatus as KnownTaskStatus } from "@/lib/task-status";
 import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
 import {
-  HOME_LOGO,
   MODEL_COUNT,
   MOTION_PRESETS,
   RATIOS,
@@ -20,6 +19,7 @@ import {
   statusLabel,
   type HomeMode,
 } from "@/features/home/home-options";
+import { GenoraMark, Icon } from "@/features/home/home-icons";
 import "./home.css";
 
 type TaskStatus = KnownTaskStatus | string;
@@ -39,18 +39,6 @@ type HomeTask = {
 type HomeMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "task"; task: HomeTask };
-type IconName =
-  | "home"
-  | "settings"
-  | "nodes"
-  | "mic"
-  | "image"
-  | "upload"
-  | "spark"
-  | "send"
-  | "box"
-  | "chevron-left"
-  | "chevron-right";
 type SpeechRecognitionResultLike = { 0: { transcript: string } };
 type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
 type SpeechRecognitionLike = {
@@ -96,64 +84,6 @@ function fileToDataUrl(file: File) {
     reader.onerror = () => reject(reader.error ?? new Error("READ_FILE_FAILED"));
     reader.readAsDataURL(file);
   });
-}
-
-function Icon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    home: <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" />,
-    settings: (
-      <>
-        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-        <path d="M19 13.5v-3l-2.1-.5-.8-1.8 1.1-1.9-2.1-2.1-1.9 1.1-1.8-.8L10 2H7l-.5 2.1-1.8.8-1.9-1.1-2.1 2.1 1.1 1.9-.8 1.8L1 10v3l2.1.5.8 1.8-1.1 1.9 2.1 2.1 1.9-1.1 1.8.8L10 22h3l.5-2.1 1.8-.8 1.9 1.1 2.1-2.1-1.1-1.9.8-1.8 2-.5Z" />
-      </>
-    ),
-    nodes: (
-      <>
-        <rect x="3" y="4" width="6" height="6" rx="1.5" />
-        <rect x="15" y="4" width="6" height="6" rx="1.5" />
-        <rect x="9" y="15" width="6" height="6" rx="1.5" />
-        <path d="M9 7h6M12 10v5" />
-      </>
-    ),
-    mic: (
-      <>
-        <rect x="9" y="3" width="6" height="11" rx="3" />
-        <path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8" />
-      </>
-    ),
-    image: (
-      <>
-        <rect x="3" y="5" width="18" height="14" rx="3" />
-        <circle cx="8" cy="10" r="1.5" />
-        <path d="m21 15-4.5-4.5L7 19" />
-      </>
-    ),
-    upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
-    spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
-    send: <path d="m22 2-7 20-4-9-9-4Z" />,
-    box: (
-      <>
-        <path d="m12 3 7 4v8l-7 4-7-4V7Z" />
-        <path d="m5 7 7 4 7-4M12 11v8" />
-      </>
-    ),
-    "chevron-left": <path d="m15 18-6-6 6-6" />,
-    "chevron-right": <path d="m9 18 6-6-6-6" />,
-  };
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {paths[name]}
-    </svg>
-  );
-}
-
-function GenoraMark({ className = "" }: { className?: string }) {
-  return (
-    <i className={`genora-mark ${className}`}>
-      <img src={HOME_LOGO} alt="" />
-    </i>
-  );
 }
 
 function HomePageContent() {
