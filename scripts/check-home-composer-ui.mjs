@@ -1,6 +1,7 @@
 import { readFile } from "node:fs/promises";
 
 const home = await readFile("app/page.tsx", "utf8");
+const homeOptions = await readFile("features/home/home-options.ts", "utf8");
 const css = await readFile("app/home.css", "utf8");
 const workflowCss = await readFile("app/workflow.css", "utf8");
 
@@ -39,7 +40,7 @@ const checks = [
   ["ratio placed after model picker", modelPickerIndex > -1 && ratioIndex > modelPickerIndex],
   ["resolution placed after ratio", ratioIndex > -1 && resolutionIndex > ratioIndex],
   ["footer controls group", home.includes("home-footer-controls") && css.includes(".home-footer-controls")],
-  ["model catalog reuse", home.includes("modelsForKind") && home.includes("MODEL_CATALOG")],
+  ["model catalog reuse", home.includes("@/features/home/home-options") && homeOptions.includes("modelsForKind") && homeOptions.includes("MODEL_CATALOG")],
   ["motion direction options", home.includes("MOTION_PRESETS") && home.includes("home-video-options")],
   ["upload image file retained", home.includes("imageFile") && home.includes("setImageFile")],
   ["real image generation API", home.includes('/api/images/generate') && !home.includes('/api/agent/generate')],

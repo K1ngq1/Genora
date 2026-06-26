@@ -3,20 +3,25 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
-import {
-  MODEL_CATALOG,
-  estimateCredits,
-  modelsForKind,
-  type CanvasRatio,
-  type CanvasResolution,
-  type GenerationKind,
-  type ModelDefinition,
-} from "@/lib/model-catalog";
+import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDefinition } from "@/lib/model-catalog";
 import { isActiveTaskStatus, type TaskStatus as KnownTaskStatus } from "@/lib/task-status";
 import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
+import {
+  HOME_LOGO,
+  MODEL_COUNT,
+  MOTION_PRESETS,
+  RATIOS,
+  RESOLUTIONS,
+  modeLabel,
+  modelsForKind,
+  optionLabel,
+  responseError,
+  selectedModelFor,
+  statusLabel,
+  type HomeMode,
+} from "@/features/home/home-options";
 import "./home.css";
 
-type HomeMode = Extract<GenerationKind, "image" | "video">;
 type TaskStatus = KnownTaskStatus | string;
 type HomeTask = {
   id: string;
@@ -70,31 +75,9 @@ type PublicTaskResponse = {
   syncError?: string | null;
 };
 
-const HOME_LOGO = "/assets/genora-logo.png";
-const MODEL_COUNT = MODEL_CATALOG.length;
-const RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
-const RESOLUTIONS: CanvasResolution[] = ["480p", "720p", "1080p", "1k", "2k", "4k", "adaptive"];
-const MOTION_PRESETS = [
-  { id: "auto", label: "自动镜头" },
-  { id: "push-in", label: "缓慢推进" },
-  { id: "pull-out", label: "缓慢拉远" },
-  { id: "pan-left", label: "向左横移" },
-  { id: "pan-right", label: "向右横移" },
-  { id: "orbit-left", label: "左侧环绕" },
-  { id: "orbit-right", label: "右侧环绕" },
-];
-
 async function readJson(response: Response) {
   const text = await response.text();
   return text ? JSON.parse(text) : {};
-}
-
-function modeLabel(mode: HomeMode) {
-  return mode === "image" ? "图像生成" : "视频生成";
-}
-
-function selectedModelFor(mode: HomeMode, modelId: string) {
-  return modelsForKind(mode).find((model) => model.id === modelId) ?? modelsForKind(mode)[0];
 }
 
 function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
@@ -104,29 +87,6 @@ function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
     webkitSpeechRecognition?: SpeechRecognitionConstructor;
   };
   return source.SpeechRecognition ?? source.webkitSpeechRecognition;
-}
-
-function optionLabel(value: CanvasResolution) {
-  return value === "adaptive" ? "自适应" : value.toUpperCase();
-}
-
-function statusLabel(status: TaskStatus) {
-  switch (status) {
-    case "pending": return "等待提交";
-    case "submitting": return "提交中";
-    case "queued": return "排队中";
-    case "processing": return "生成中";
-    case "downloading": return "下载结果";
-    case "completed": return "已完成";
-    case "failed": return "生成失败";
-    case "cancelled": return "已取消";
-    case "timeout": return "生成超时";
-    default: return String(status || "生成中");
-  }
-}
-
-function responseError(body: Record<string, unknown>, fallback: string) {
-  return String(body.errorCode ?? body.error ?? body.detail ?? fallback);
 }
 
 function fileToDataUrl(file: File) {
