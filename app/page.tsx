@@ -20,6 +20,7 @@ import {
   type HomeMode,
 } from "@/features/home/home-options";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
+import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import "./home.css";
 
 type TaskStatus = KnownTaskStatus | string;
@@ -39,19 +40,6 @@ type HomeTask = {
 type HomeMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "task"; task: HomeTask };
-type SpeechRecognitionResultLike = { 0: { transcript: string } };
-type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
 type PublicTaskResponse = {
   id?: string;
   taskId?: string;
@@ -66,15 +54,6 @@ type PublicTaskResponse = {
 async function readJson(response: Response) {
   const text = await response.text();
   return text ? JSON.parse(text) : {};
-}
-
-function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
-  if (typeof window === "undefined") return undefined;
-  const source = window as Window & {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  };
-  return source.SpeechRecognition ?? source.webkitSpeechRecognition;
 }
 
 function fileToDataUrl(file: File) {
