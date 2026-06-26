@@ -11,16 +11,15 @@ import {
   MOTION_PRESETS,
   RATIOS,
   RESOLUTIONS,
-  modeLabel,
   modelsForKind,
   optionLabel,
   responseError,
   selectedModelFor,
-  statusLabel,
   type HomeMode,
 } from "@/features/home/home-options";
 import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
+import { HomeTaskCard } from "@/features/home/home-task-card";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import type { HomeMessage, HomeTask } from "@/features/home/home-types";
 import "./home.css";
@@ -276,22 +275,7 @@ function HomePageContent() {
             message.role === "user" ? (
               <article key={message.id} className="home-message user">{message.content}</article>
             ) : (
-              <article key={message.id} className={`home-task-card ${message.task.kind} ${message.task.status}`}>
-                <header>
-                  <span>{modeLabel(message.task.kind)}</span>
-                  <b>{statusLabel(message.task.status)}</b>
-                </header>
-                <p>{message.task.prompt}</p>
-                {message.task.outputUrl && message.task.kind === "image" && <img src={message.task.outputUrl} alt={message.task.prompt} />}
-                {message.task.outputUrl && message.task.kind === "video" && <video src={message.task.outputUrl} controls />}
-                {message.task.error && <em>{message.task.error}</em>}
-                <footer>
-                  <span>{message.task.model}</span>
-                  <span>{message.task.ratio}</span>
-                  <span>{optionLabel(message.task.resolution)}</span>
-                  {message.task.duration && <span>{message.task.duration} 秒</span>}
-                </footer>
-              </article>
+              <HomeTaskCard key={message.id} task={message.task} />
             )
           ))}
         </section>

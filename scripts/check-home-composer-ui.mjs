@@ -2,8 +2,10 @@ import { readFile } from "node:fs/promises";
 
 const home = await readFile("app/page.tsx", "utf8");
 const homeOptions = await readFile("features/home/home-options.ts", "utf8");
+const homeTaskCard = await readFile("features/home/home-task-card.tsx", "utf8");
 const css = await readFile("app/home.css", "utf8");
 const workflowCss = await readFile("app/workflow.css", "utf8");
+const homeSurface = `${home}\n${homeTaskCard}`;
 
 const modelPickerIndex = home.indexOf("home-model-picker");
 const ratioIndex = home.indexOf("home-ratio-select");
@@ -46,7 +48,7 @@ const checks = [
   ["real image generation API", home.includes('/api/images/generate') && !home.includes('/api/agent/generate')],
   ["real video generation API", home.includes('/api/videos/generate') && home.includes("new FormData()")],
   ["task polling", home.includes('/api/tasks/${taskId}') && home.includes("pollHomeTask")],
-  ["home task result cards", home.includes("home-task-card") && home.includes("outputUrl") && home.includes("<video") && home.includes("<img")],
+  ["home task result cards", homeSurface.includes("home-task-card") && homeSurface.includes("outputUrl") && homeSurface.includes("<video") && homeSurface.includes("<img")],
   ["generation layout state", home.includes("has-generation") && home.includes("hasGeneration")],
   ["submit stays on home", !home.includes("router.push(`/workspace")],
   ["speech recognition support", home.includes("SpeechRecognition") && home.includes("startVoiceInput") && home.includes('name="mic"')],
