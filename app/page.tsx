@@ -1,287 +1,35 @@
 "use client";
 
-import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { Suspense, useEffect, useMemo, useRef, useState, type PointerEvent } from "react";
+import { estimateCredits, type CanvasRatio, type CanvasResolution, type ModelDefinition } from "@/lib/model-catalog";
+import { isActiveTaskStatus } from "@/lib/task-status";
+import { HOME_TASK_POLL_INTERVAL_MS } from "@/lib/video-polling";
 import {
-  MODEL_CATALOG,
-  estimateCredits,
-  modelCapabilityLabel,
-  modelChannelLabel,
+  MOTION_PRESETS,
+  RATIOS,
+  RESOLUTIONS,
   modelsForKind,
-  type CanvasRatio,
-  type CanvasResolution,
-  type GenerationKind,
-  type ModelDefinition,
-} from "@/lib/model-catalog";
+  optionLabel,
+  responseError,
+  selectedModelFor,
+  type HomeMode,
+} from "@/features/home/home-options";
+import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
+import { Icon } from "@/features/home/home-icons";
+import { HomeSidebar } from "@/features/home/home-sidebar";
+import { HomeStage } from "@/features/home/home-stage";
+import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
+import type { HomeMessage, HomeTask } from "@/features/home/home-types";
 import "./home.css";
-
-type HomeMode = Extract<GenerationKind, "image" | "video">;
-type TaskStatus = "pending" | "submitting" | "queued" | "processing" | "downloading" | "completed" | "failed" | "cancelled" | "timeout" | string;
-type HomeTask = {
-  id: string;
-  taskId?: string;
-  kind: HomeMode;
-  status: TaskStatus;
-  prompt: string;
-  model: string;
-  ratio: CanvasRatio;
-  resolution: CanvasResolution;
-  duration?: number;
-  outputUrl?: string;
-  error?: string;
-};
-type HomeMessage =
-  | { id: string; role: "user"; content: string }
-  | { id: string; role: "task"; task: HomeTask };
-type IconName =
-  | "home"
-  | "settings"
-  | "nodes"
-  | "mic"
-  | "image"
-  | "upload"
-  | "plus"
-  | "spark"
-  | "send"
-  | "box"
-  | "user"
-  | "log-in"
-  | "download"
-  | "model-google"
-  | "model-openai"
-  | "model-kling"
-  | "model-horse"
-  | "model-xai"
-  | "model-agnes"
-  | "model-bars"
-  | "model-wave"
-  | "chevron-left"
-  | "chevron-right";
-type SpeechRecognitionResultLike = { 0: { transcript: string } };
-type SpeechRecognitionEventLike = { resultIndex: number; results: ArrayLike<SpeechRecognitionResultLike> };
-type SpeechRecognitionLike = {
-  lang: string;
-  interimResults: boolean;
-  continuous: boolean;
-  onresult: ((event: SpeechRecognitionEventLike) => void) | null;
-  onend: (() => void) | null;
-  onerror: (() => void) | null;
-  start: () => void;
-  stop: () => void;
-};
-type SpeechRecognitionConstructor = new () => SpeechRecognitionLike;
-type PublicTaskResponse = {
-  id?: string;
-  taskId?: string;
-  type?: string;
-  status?: TaskStatus;
-  outputUrl?: string;
-  error?: string;
-  errorCode?: string;
-  syncError?: string | null;
-};
-
-const HOME_LOGO = "/assets/genora-logo.png";
-const MODEL_COUNT = MODEL_CATALOG.length;
-const RATIOS: CanvasRatio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
-const ACTIVE_TASK_STATUSES = new Set(["pending", "submitting", "queued", "processing", "downloading"]);
-const MOTION_PRESETS = [
-  { id: "auto", label: "自动镜头" },
-  { id: "push-in", label: "缓慢推进" },
-  { id: "pull-out", label: "缓慢拉远" },
-  { id: "pan-left", label: "向左横移" },
-  { id: "pan-right", label: "向右横移" },
-  { id: "orbit-left", label: "左侧环绕" },
-  { id: "orbit-right", label: "右侧环绕" },
-];
-
-async function readJson(response: Response) {
-  const text = await response.text();
-  return text ? JSON.parse(text) : {};
-}
-
-function modeLabel(mode: HomeMode) {
-  return mode === "image" ? "图像生成" : "视频生成";
-}
-
-function selectedModelFor(mode: HomeMode, modelId: string) {
-  return modelsForKind(mode).find((model) => model.id === modelId) ?? modelsForKind(mode)[0];
-}
-
-function getSpeechRecognition(): SpeechRecognitionConstructor | undefined {
-  if (typeof window === "undefined") return undefined;
-  const source = window as Window & {
-    SpeechRecognition?: SpeechRecognitionConstructor;
-    webkitSpeechRecognition?: SpeechRecognitionConstructor;
-  };
-  return source.SpeechRecognition ?? source.webkitSpeechRecognition;
-}
-
-function optionLabel(value: CanvasResolution) {
-  return value.toUpperCase();
-}
-
-function statusLabel(status: TaskStatus) {
-  switch (status) {
-    case "pending": return "等待提交";
-    case "submitting": return "提交中";
-    case "queued": return "排队中";
-    case "processing": return "生成中";
-    case "downloading": return "下载结果";
-    case "completed": return "已完成";
-    case "failed": return "生成失败";
-    case "cancelled": return "已取消";
-    case "timeout": return "生成超时";
-    default: return String(status || "生成中");
-  }
-}
-
-function responseError(body: Record<string, unknown>, fallback: string) {
-  return String(body.errorCode ?? body.error ?? body.detail ?? fallback);
-}
-
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result ?? ""));
-    reader.onerror = () => reject(reader.error ?? new Error("READ_FILE_FAILED"));
-    reader.readAsDataURL(file);
-  });
-}
-
-function Icon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    home: <path d="M4 11.5 12 5l8 6.5V20a1 1 0 0 1-1 1h-5v-6h-4v6H5a1 1 0 0 1-1-1v-8.5Z" />,
-    settings: (
-      <>
-        <path d="M12 8.5a3.5 3.5 0 1 0 0 7 3.5 3.5 0 0 0 0-7Z" />
-        <path d="M19 13.5v-3l-2.1-.5-.8-1.8 1.1-1.9-2.1-2.1-1.9 1.1-1.8-.8L10 2H7l-.5 2.1-1.8.8-1.9-1.1-2.1 2.1 1.1 1.9-.8 1.8L1 10v3l2.1.5.8 1.8-1.1 1.9 2.1 2.1 1.9-1.1 1.8.8L10 22h3l.5-2.1 1.8-.8 1.9 1.1 2.1-2.1-1.1-1.9.8-1.8 2-.5Z" />
-      </>
-    ),
-    nodes: (
-      <>
-        <rect x="3" y="4" width="6" height="6" rx="1.5" />
-        <rect x="15" y="4" width="6" height="6" rx="1.5" />
-        <rect x="9" y="15" width="6" height="6" rx="1.5" />
-        <path d="M9 7h6M12 10v5" />
-      </>
-    ),
-    mic: (
-      <>
-        <rect x="9" y="3" width="6" height="11" rx="3" />
-        <path d="M5 11a7 7 0 0 0 14 0M12 18v3m-4 0h8" />
-      </>
-    ),
-    image: (
-      <>
-        <rect x="3" y="5" width="18" height="14" rx="3" />
-        <circle cx="8" cy="10" r="1.5" />
-        <path d="m21 15-4.5-4.5L7 19" />
-      </>
-    ),
-    upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
-    plus: <path d="M12 5v14M5 12h14" />,
-    spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
-    send: <path d="m22 2-7 20-4-9-9-4Z" />,
-    box: (
-      <>
-        <path d="m12 3 7 4v8l-7 4-7-4V7Z" />
-        <path d="m5 7 7 4 7-4M12 11v8" />
-      </>
-    ),
-    user: (
-      <>
-        <circle cx="12" cy="8" r="4" />
-        <path d="M4.5 21a7.5 7.5 0 0 1 15 0" />
-      </>
-    ),
-    "log-in": <path d="M10 17l5-5-5-5M15 12H3M14 4h4a3 3 0 0 1 3 3v10a3 3 0 0 1-3 3h-4" />,
-    download: <path d="M12 3v12m0 0 4-4m-4 4-4-4M5 20h14" />,
-    "model-google": <path d="M20 12.2c0-.7-.1-1.4-.2-2H12v3.8h4.5a3.9 3.9 0 0 1-1.7 2.5v2h2.8c1.6-1.5 2.4-3.7 2.4-6.3ZM12 21c2.4 0 4.4-.8 5.8-2.2l-2.8-2a5.3 5.3 0 0 1-8-2.8H4.1v2.1A8.9 8.9 0 0 0 12 21ZM7 14a5.4 5.4 0 0 1 0-3.9V8H4.1a9 9 0 0 0 0 8.1L7 14ZM12 6.7c1.3 0 2.5.5 3.4 1.3l2.5-2.5A8.6 8.6 0 0 0 12 3a8.9 8.9 0 0 0-7.9 4.9L7 10a5.3 5.3 0 0 1 5-3.3Z" />,
-    "model-openai": <path d="M12 3.2a4 4 0 0 1 3.8 2.7 4 4 0 0 1 4.1 5.9 4 4 0 0 1-3.7 6.4 4 4 0 0 1-6.2 1.6 4 4 0 0 1-4-2.7 4 4 0 0 1-2-7 4 4 0 0 1 3.8-6.3A4 4 0 0 1 12 3.2Zm-3 5.1 6 3.5M9 15.7v-7M15 8.3v7l-6-3.5" />,
-    "model-kling": <path d="M5 4v16M19 4 8 12l11 8M8 12l11-8" />,
-    "model-horse": <path d="M4 17c2.5-6 5-9 9-9h3l3 3-2 2h-3l-2 7M7 17h10M9 8l-2-3M13 8l2-3" />,
-    "model-xai": <path d="m5 5 14 14M19 5 5 19M8 5h4M12 19h4" />,
-    "model-agnes": <path d="M8.2 5.4a4.2 4.2 0 0 1 7.6 0 4.2 4.2 0 0 1 2.8 7.6 4.2 4.2 0 0 1-7.6 2.8A4.2 4.2 0 0 1 3.4 13a4.2 4.2 0 0 1 4.8-7.6Z" />,
-    "model-bars": <path d="M5 19V9m4 10V5m4 14v-7m4 7V8" />,
-    "model-wave": <path d="M3 12c2.5-5 4.5-5 7 0s4.5 5 7 0 2.5-5 4-2" />,
-    "chevron-left": <path d="m15 18-6-6 6-6" />,
-    "chevron-right": <path d="m9 18 6-6-6-6" />,
-  };
-
-  return (
-    <svg viewBox="0 0 24 24" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-      {paths[name]}
-    </svg>
-  );
-}
-
-function GenoraMark({ className = "" }: { className?: string }) {
-  return (
-    <i className={`genora-mark ${className}`}>
-      <img src={HOME_LOGO} alt="" />
-    </i>
-  );
-}
-
-function modelIconName(model: ModelDefinition): IconName {
-  if (model.developer === "google") return "model-google";
-  if (model.developer === "openai") return "model-openai";
-  if (model.developer === "kling") return "model-kling";
-  if (model.developer === "happyhorse") return "model-horse";
-  if (model.developer === "xai") return "model-xai";
-  if (model.developer === "agnes") return "model-agnes";
-  if (model.developer === "bytedance") return "model-bars";
-  const kind = model.kind;
-  return kind === "video" ? "model-bars" : "model-wave";
-}
-
-function modelLogoClass(model: ModelDefinition) {
-  if (model.developer === "google") return "model-logo-google";
-  if (model.developer === "openai") return "model-logo-openai";
-  if (model.developer === "kling") return "model-logo-kling";
-  if (model.developer === "happyhorse") return "model-logo-horse";
-  if (model.developer === "xai") return "model-logo-xai";
-  if (model.developer === "agnes") return "model-logo-agnes";
-  if (model.developer === "bytedance") return "model-logo-seedance";
-  return "model-logo-generic";
-}
-
-async function downloadGeneratedImage(task: HomeTask) {
-  if (!task.outputUrl) return;
-  const fileName = `genora-${task.taskId ?? task.id ?? Date.now()}.png`;
-  const anchor = document.createElement("a");
-  anchor.download = fileName;
-  anchor.rel = "noopener";
-  anchor.style.display = "none";
-  document.body.appendChild(anchor);
-  try {
-    const response = await fetch(task.outputUrl, { cache: "no-store" });
-    if (!response.ok) throw new Error("DOWNLOAD_FAILED");
-    const blob = await response.blob();
-    const objectUrl = URL.createObjectURL(blob);
-    anchor.href = objectUrl;
-    anchor.click();
-    setTimeout(() => URL.revokeObjectURL(objectUrl), 0);
-  } catch {
-    anchor.href = task.outputUrl;
-    anchor.target = "_blank";
-    anchor.click();
-  } finally {
-    anchor.remove();
-  }
-}
 
 function HomePageContent() {
   const router = useRouter();
   const searchParams = useSearchParams();
   const imageInputRef = useRef<HTMLInputElement>(null);
-  const userPopoverRef = useRef<HTMLDivElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
   const pollTimersRef = useRef(new Map<string, ReturnType<typeof setTimeout>>());
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
-  const [userPopoverOpen, setUserPopoverOpen] = useState(false);
   const [mode, setMode] = useState<HomeMode>("image");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
@@ -302,7 +50,7 @@ function HomePageContent() {
   const videoModels = useMemo(() => modelsForKind("video"), []);
   const currentModels = mode === "image" ? imageModels : videoModels;
   const selectedModel = selectedModelFor(mode, mode === "image" ? imageModelId : videoModelId);
-  const availableResolutions = selectedModel.resolutions;
+  const availableResolutions = selectedModel.resolutions.length ? selectedModel.resolutions : RESOLUTIONS;
   const availableRatios = selectedModel.ratios.length ? selectedModel.ratios : RATIOS;
   const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imageFile) });
   const creditLabel = selectedModel.free ? "Free" : `${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
@@ -325,28 +73,6 @@ function HomePageContent() {
     for (const timer of pollTimersRef.current.values()) clearTimeout(timer);
     pollTimersRef.current.clear();
   }, []);
-
-  useEffect(() => {
-    if (!availableRatios.includes(ratio)) setRatio(selectedModel.defaultRatio);
-    if (!availableResolutions.includes(resolution)) setResolution(selectedModel.defaultResolution);
-  }, [availableRatios, availableResolutions, ratio, resolution, selectedModel.defaultRatio, selectedModel.defaultResolution]);
-
-  useEffect(() => {
-    if (!userPopoverOpen) return;
-    const closeOnOutside = (event: MouseEvent) => {
-      if (userPopoverRef.current?.contains(event.target as Node)) return;
-      setUserPopoverOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setUserPopoverOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutside);
-    document.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside);
-      document.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [userPopoverOpen]);
 
   const selectModel = (model: ModelDefinition) => {
     if (model.kind === "image") setImageModelId(model.id);
@@ -383,8 +109,8 @@ function HomePageContent() {
           outputUrl: body.outputUrl,
           error: body.errorCode ?? body.error ?? body.syncError ?? undefined,
         });
-        if (ACTIVE_TASK_STATUSES.has(status)) {
-          const timer = setTimeout(run, 2500);
+        if (isActiveTaskStatus(status)) {
+          const timer = setTimeout(run, HOME_TASK_POLL_INTERVAL_MS);
           pollTimersRef.current.set(messageId, timer);
         } else {
           pollTimersRef.current.delete(messageId);
@@ -516,92 +242,11 @@ function HomePageContent() {
 
   return (
     <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${hasGeneration ? "has-generation" : ""}`}>
-      <aside className={`home-sidebar ${sidebarCollapsed ? "collapsed" : ""}`}>
-        <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
-          <GenoraMark />
-          <span>Genora</span>
-        </Link>
-        <nav aria-label="主导航">
-          <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
-          <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
-        </nav>
-        <div className="home-sidebar-bottom">
-          <div className="home-user-anchor" ref={userPopoverRef}>
-            <button
-              className={`logo-button home-user-button ${userPopoverOpen ? "active" : ""}`}
-              type="button"
-              title="用户"
-              data-label="用户"
-              aria-haspopup="dialog"
-              aria-expanded={userPopoverOpen}
-              onClick={() => setUserPopoverOpen((current) => !current)}
-            >
-              <Icon name="user" />
-              <span>用户</span>
-            </button>
-            {userPopoverOpen && (
-              <div className="home-user-popover" role="dialog" aria-label="用户信息">
-                <div className="home-user-card-head">
-                  <span className="home-user-avatar">G</span>
-                  <span>
-                    <b>未登录</b>
-                    <small>登录后可同步账号与创作记录</small>
-                  </span>
-                </div>
-                <Link className="home-user-primary" href="/login" onClick={() => setUserPopoverOpen(false)}><Icon name="log-in" />登录</Link>
-                <Link className="home-user-secondary" href="/settings" onClick={() => setUserPopoverOpen(false)}><Icon name="settings" />设置</Link>
-              </div>
-            )}
-          </div>
-          <button className="home-collapse" type="button" onClick={() => setSidebarCollapsed((current) => !current)} title={sidebarCollapsed ? "展开" : "收起"} data-label={sidebarCollapsed ? "展开" : "收起"}>
-            <Icon name={sidebarCollapsed ? "chevron-right" : "chevron-left"} />
-            <span>{sidebarCollapsed ? "展开" : "收起"}</span>
-          </button>
-        </div>
-      </aside>
+      <HomeSidebar collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((current) => !current)} />
 
       <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />
-        <section className="home-stage" aria-label="对话区域">
-          {!hasGeneration && (
-            <div className="home-stage-empty">
-              <GenoraMark className="stage-mark" />
-              <h1 className="home-shell-title">今天要做点什么？</h1>
-              <span>已接入 {MODEL_COUNT} 个创作模型</span>
-            </div>
-          )}
-          {messages.map((message) => (
-            message.role === "user" ? (
-              <article key={message.id} className="home-message user">{message.content}</article>
-            ) : (
-              <article key={message.id} className={`home-task-card ${message.task.kind} ${message.task.status}`}>
-                <header>
-                  <span>{modeLabel(message.task.kind)}</span>
-                  <b>{statusLabel(message.task.status)}</b>
-                </header>
-                <p>{message.task.prompt}</p>
-                {message.task.outputUrl && message.task.kind === "image" && (
-                  <div className="home-task-media">
-                    <img src={message.task.outputUrl} alt={message.task.prompt} />
-                    {message.task.status === "completed" && (
-                      <button className="home-download-button" type="button" onClick={() => void downloadGeneratedImage(message.task)} title="下载图片" aria-label="下载图片">
-                        <Icon name="download" />
-                      </button>
-                    )}
-                  </div>
-                )}
-                {message.task.outputUrl && message.task.kind === "video" && <video src={message.task.outputUrl} controls />}
-                {message.task.error && <em>{message.task.error}</em>}
-                <footer>
-                  <span>{message.task.model}</span>
-                  <span>{message.task.ratio}</span>
-                  <span>{optionLabel(message.task.resolution)}</span>
-                  {message.task.duration && <span>{message.task.duration} 秒</span>}
-                </footer>
-              </article>
-            )
-          ))}
-        </section>
+        <HomeStage hasGeneration={hasGeneration} messages={messages} />
 
         <section className={`home-composer-dock ${hasGeneration ? "has-generation" : ""}`} aria-label="创作对话框">
           <div className="home-mode-tabs">
@@ -615,7 +260,7 @@ function HomePageContent() {
 
           <input ref={imageInputRef} hidden type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])} />
           <button className="home-upload-strip" type="button" onClick={() => imageInputRef.current?.click()}>
-            {imagePreview ? <img src={imagePreview} alt="" /> : <Icon name="plus" />}
+            {imagePreview ? <img src={imagePreview} alt="" /> : <><Icon name="upload" />上传图片</>}
           </button>
 
           {mode === "video" && (
@@ -648,30 +293,23 @@ function HomePageContent() {
             <div className="home-composer-footer">
               <div className="home-footer-controls">
                 <div className="home-model-picker">
-                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}>
-                    <span className={`home-model-logo ${modelLogoClass(selectedModel)}`}><Icon name={modelIconName(selectedModel)} /></span>
-                    <span>{selectedModel.label}</span>
-                  </button>
+                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}><Icon name="box" />{selectedModel.label}</button>
                   {modelMenuOpen && (
                     <div className="home-model-menu">
                       {currentModels.map((model) => (
                         <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
-                          <span className={`home-model-logo ${modelLogoClass(model)}`}><Icon name={modelIconName(model)} /></span>
-                          <span className="home-model-copy">
-                            <b>{model.label}</b>
-                            <small>{modelCapabilityLabel(model)}</small>
-                          </span>
-                          <em>{model.free ? "Free" : modelChannelLabel(model)}</em>
+                          <span>{model.label}</span>
+                          <small>{model.free ? "Free" : model.provider}</small>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
                 <select className="home-ratio-select" value={ratio} onChange={(event) => setRatio(event.target.value as CanvasRatio)}>
-                  {availableRatios.map((item) => <option key={item} value={item}>{item}</option>)}
+                  {RATIOS.map((item) => <option key={item} value={item} disabled={!availableRatios.includes(item)}>{item}</option>)}
                 </select>
                 <select className="home-resolution-select" value={resolution} onChange={(event) => setResolution(event.target.value as CanvasResolution)}>
-                  {availableResolutions.map((item) => <option key={item} value={item}>{optionLabel(item)}</option>)}
+                  {RESOLUTIONS.map((item) => <option key={item} value={item} disabled={!availableResolutions.includes(item)}>{optionLabel(item)}</option>)}
                 </select>
               </div>
               <div className="home-composer-actions">

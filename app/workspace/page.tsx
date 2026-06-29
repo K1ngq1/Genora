@@ -440,7 +440,7 @@ function modelLogoClass(modelId: string) {
 }
 
 function ModelLogoMark({ model, className = "" }: { model: ReturnType<typeof getModelDefinition>; className?: string }) {
-  const logo = getProviderLogo(model.developer);
+  const logo = getProviderLogo(model.provider);
   return (
     <span className={`model-logo-mark ${modelLogoClass(model.id)} ${logo.src ? "has-logo" : "empty-logo"} ${className}`} title={logo.label}>
       {logo.src ? <img src={logo.src} alt="" /> : null}

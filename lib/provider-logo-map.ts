@@ -1,6 +1,6 @@
-import type { ModelDeveloper, ModelProvider } from "./model-catalog";
+import type { ModelProvider } from "./model-catalog";
 
-type LogoKey = ModelDeveloper | ModelProvider | "fallback";
+type LogoKey = ModelProvider | "fallback";
 
 export type ProviderLogoEntry = {
   label: string;
@@ -9,12 +9,6 @@ export type ProviderLogoEntry = {
 
 export const providerLogoMap: Record<LogoKey, ProviderLogoEntry> = {
   agnes: { label: "Agnes", src: "/assets/genora-logo.png" },
-  google: { label: "Google / Gemini", src: null },
-  openai: { label: "OpenAI", src: null },
-  bytedance: { label: "ByteDance", src: null },
-  kling: { label: "Kling", src: null },
-  happyhorse: { label: "HappyHorse", src: null },
-  xai: { label: "xAI", src: null },
   apimart: { label: "APIMart", src: null },
   fallback: { label: "Model", src: null },
 };

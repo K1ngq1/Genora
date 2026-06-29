@@ -6,6 +6,8 @@ const root = process.cwd();
 const workspacePage = path.join(root, "app", "workspace", "page.tsx");
 const homePage = path.join(root, "app", "page.tsx");
 const projectsPage = path.join(root, "app", "projects", "page.tsx");
+const homeOptionsFile = path.join(root, "features", "home", "home-options.ts");
+const homeSidebarFile = path.join(root, "features", "home", "home-sidebar.tsx");
 
 function assert(condition, message) {
   if (!condition) {
@@ -16,19 +18,22 @@ function assert(condition, message) {
 
 assert(existsSync(workspacePage), "Expected infinite canvas route at app/workspace/page.tsx");
 
-const [home, workspace, projects] = await Promise.all([
+const [home, homeOptions, homeSidebar, workspace, projects] = await Promise.all([
   readFile(homePage, "utf8"),
+  readFile(homeOptionsFile, "utf8"),
+  readFile(homeSidebarFile, "utf8"),
   readFile(workspacePage, "utf8"),
   readFile(projectsPage, "utf8"),
 ]);
+const homeSurface = `${home}\n${homeSidebar}`;
 
 assert(home.includes("/api/images/generate"), "Home page must call the image generation API");
 assert(home.includes("/api/videos/generate"), "Home page must call the video generation API");
 assert(home.includes("/api/tasks/"), "Home page must poll generated media tasks");
 assert(!home.includes("/api/agent/generate"), "Home page media generation must not call the Agnes text Agent API");
-assert(home.includes("href=\"/projects\""), "Home page must link the workspace button to /projects");
-assert(!home.includes("href=\"/database\""), "Home page should not show the removed database button");
-assert(home.includes("MODEL_CATALOG"), "Home page must reuse the shared model catalog");
+assert(homeSurface.includes("href=\"/projects\""), "Home page must link the workspace button to /projects");
+assert(!homeSurface.includes("href=\"/database\""), "Home page should not show the removed database button");
+assert(home.includes("@/features/home/home-options") && homeOptions.includes("MODEL_CATALOG"), "Home page must reuse the shared model catalog");
 assert(!home.includes("ReactFlowProvider"), "Home page should not render the infinite canvas directly");
 assert(!home.includes("home-header"), "Home page should not keep the old top header");
 assert(workspace.includes("ReactFlowProvider"), "Workspace route must render the infinite canvas");

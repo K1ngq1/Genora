@@ -125,6 +125,27 @@ If the user says "directly implement" or "直接改", keep the plan very short a
 
 ---
 
+### 4.3 Refactor Tasks
+
+For refactor tasks, work in small rounds.
+
+Each round must:
+
+1. Be the smallest meaningful refactor.
+2. State the files that will be touched before editing.
+3. Preserve existing UI text, UI behavior, API contracts, task polling, and provider adapters unless the user explicitly asks otherwise.
+4. Run verification after the change:
+   - `npm.cmd run build`
+   - relevant project check scripts
+   - page/API smoke checks when routing, config, or data loading may be affected
+5. If verification passes, create a commit.
+6. Do not push unless the user explicitly asks to push.
+7. If verification fails, report the failure first and do not broaden the refactor scope.
+
+Do not combine multiple refactor goals in one round unless the user explicitly asks.
+
+---
+
 ## 5. Encoding Rules
 
 This project may contain Chinese text, but source files must remain safe for Windows and Git.
@@ -164,7 +185,7 @@ npm run build
 npm run lint
 npm test
 git status
-git add .
+git add path\to\file1 path\to\file2
 git commit -m "fix: preserve queued task polling"
 git push
 ```
@@ -238,11 +259,11 @@ For backend changes:
 Recommended provider structure if the project has no better convention:
 
 ```txt
-src/
+services/
   providers/
-    agnes/
-    apimart/
-    shared/
+config/
+features/
+lib/
 ```
 
 If the project already has a structure, follow the existing structure.
@@ -381,7 +402,7 @@ perf: improve performance
 Examples:
 
 ```cmd
-git add .
+git add path\to\file1 path\to\file2
 git commit -m "fix: preserve queued video task polling"
 git push
 ```
@@ -390,6 +411,8 @@ Rules:
 
 - One commit should do one type of change.
 - Do not mix unrelated changes.
+- Prefer staging exact files.
+- Do not use `git add .` when unrelated, generated, local config, or secret files are present.
 - Do not run destructive Git commands without explicit user confirmation.
 - Do not overwrite user changes.
 - If uncommitted user changes exist, protect them.
@@ -402,6 +425,18 @@ git clean -fd
 git push --force
 git rebase
 ```
+
+Never use these bulk deletion commands:
+
+```txt
+del /s
+rd /s
+rmdir /s
+Remove-Item -Recurse
+rm -rf
+```
+
+If multiple files need to be deleted, stop and ask the user first. Only delete one explicit file path at a time when deletion is approved.
 
 ---
 
@@ -536,7 +571,8 @@ if "%msg%"=="" (
   exit /b 1
 )
 
-git add .
+echo Stage exact files manually before running this script.
+git status
 git commit -m "%msg%"
 git push
 
@@ -659,3 +695,10 @@ Default to:
 - No unnecessary refactor
 - No unrelated UI text changes
 - No deletion of polling or task history
+
+---
+
+## 21. Headroom Rules
+
+- The project defaults to using the Headroom provider when model/provider choice is relevant.
+- If the Headroom proxy is unavailable, clearly state that before falling back to ordinary model calls.
