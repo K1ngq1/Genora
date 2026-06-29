@@ -263,3 +263,73 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
 .material-item-menu hr{width:calc(100% + 16px);height:1px;border:0;margin:7px -8px;background:#ffffff1d}
 .material-item-menu .danger{color:#ff5f68}
 .canvas-shell>.topbar{top:22px;left:32px;right:32px;padding-left:8px}
+
+/* Compact canvas refinement: keep existing flows, polish only the visible shell. */
+.canvas-shell,.canvas-shell *{font-weight:400!important}
+.canvas-shell b,.canvas-shell strong,.canvas-shell h1,.canvas-shell h2,.canvas-shell h3{font-weight:500!important}
+.canvas-shell .react-flow__background pattern circle{fill:#ffffff38!important}
+.canvas-shell .react-flow__background{opacity:.9}
+.canvas-node.text.text-short{width:300px}
+.canvas-node.text.text-medium{width:360px}
+.canvas-node.text.text-long{width:430px}
+.canvas-node.text .node-body{max-height:360px}
+.canvas-node.text .node-result-card{align-items:stretch;padding:16px}
+.canvas-node.text .node-result-card .text-result{max-height:320px;padding:0 4px;text-align:left;font-size:13px;line-height:1.72;color:#ffffffe8}
+.canvas-node.text .prompt-pop{background:transparent!important;border-color:transparent!important;box-shadow:none!important;backdrop-filter:none!important;padding:0}
+.canvas-node.text .prompt-input{border:1px solid #ffffff16!important;background:#17171bdd!important;box-shadow:inset 0 1px #ffffff10,0 14px 36px #0009!important}
+.prompt-pop{width:min(560px,calc(100vw - 36px));gap:9px;border-radius:18px!important}
+.canvas-node.image .prompt-pop,.canvas-node.video .prompt-pop{background:linear-gradient(145deg,#17171cdf,#08080bee)!important;border:1px solid #ffffff18!important;box-shadow:inset 0 1px #ffffff12,0 18px 54px #000d!important}
+.prompt-input{font-weight:400!important;letter-spacing:0}
+.prompt-toolbar{gap:8px;padding:6px 2px 0;border-top:1px solid #ffffff0e}
+.settings-trigger,.negative-prompt-trigger{min-height:34px!important;padding:0 11px!important;border:1px solid #ffffff18!important;background:#ffffff0b!important;color:#ffffffe0!important;font-size:12px!important}
+.model-trigger.model-trigger-logo{min-height:34px!important;height:34px!important;padding:0 10px!important;border:1px solid #ffffff16!important;background:#ffffff0b!important;box-shadow:inset 0 1px #ffffff10!important}
+.model-trigger.model-trigger-logo span{font-size:12px!important;font-weight:400!important}
+.model-logo-mark{width:24px;height:24px;border:1px solid #ffffff24;border-radius:50%;background:#ffffff08;overflow:hidden;color:transparent!important}
+.model-logo-mark img{width:100%;height:100%;object-fit:contain;display:block}
+.model-logo-mark.empty-logo:after{content:"";width:8px;height:8px;border-radius:50%;background:#ffffff38}
+.model-menu>button,.model-menu section>button{grid-template-columns:26px minmax(0,1fr) auto;padding:9px 10px;border-radius:12px}
+.model-menu b{font-size:12px!important;font-weight:500!important}
+.model-menu small{font-size:9px}
+.model-menu em{border:1px solid #ffffff18;border-radius:999px;padding:3px 7px;background:#ffffff0a;color:#ffffffad}
+.frame-strip{display:flex;align-items:center;gap:7px;min-height:42px}
+.prompt-tool-square,.frame-add,.frame-slot .frame-chip,.frame-chip-wrap .frame-chip{display:flex!important;align-items:center;justify-content:center;gap:4px;width:42px!important;min-width:42px!important;height:42px!important;min-height:42px!important;border:1px solid #ffffff1c!important;border-radius:13px!important;background:#ffffff0d!important;color:#ffffffe0!important;box-shadow:inset 0 1px #ffffff12!important;padding:0!important;transition:.16s}
+.prompt-tool-square:hover,.frame-add:hover,.frame-slot .frame-chip:hover,.frame-chip-wrap .frame-chip:hover{border-color:#ffffff38!important;background:#ffffff18!important;color:#fff!important;transform:translateY(-1px)}
+.frame-slot .frame-chip svg,.frame-add svg,.prompt-tool-square svg{width:18px!important;height:18px!important}
+.frame-slot .frame-chip b,.frame-chip-wrap .frame-chip span{font-size:9px!important;line-height:1.05;color:#ffffffd8;text-shadow:none;writing-mode:horizontal-tb}
+.frame-slot .frame-chip img,.frame-chip-wrap .frame-chip img{width:100%;height:100%;object-fit:cover;border-radius:12px}
+.frame-slot,.frame-chip-wrap{position:relative;display:grid;place-items:center}
+.frame-remove{position:absolute!important;right:-5px;top:-5px;width:17px!important;height:17px!important;border-radius:50%!important;background:#111!important;color:#fff!important;border:1px solid #ffffff28!important}
+.frame-remove svg{width:10px!important;height:10px!important}
+.generate-button-submit{height:38px!important;min-height:38px!important;padding:3px 3px 3px 10px!important}
+.generate-button-submit .generation-cost{font-size:12px!important;font-weight:400!important}
+.generate-button-submit .submit-arrow{width:30px;height:30px}
+.canvas-control-bar{left:92px!important;bottom:24px!important}
+.account-entry-wrap{position:absolute;z-index:56;left:28px;bottom:24px}
+.account-entry-button{display:grid;place-items:center;width:44px;height:44px;border:1px solid #ffffff22;border-radius:50%;background:#151519e8;color:#f7f7f8;box-shadow:inset 0 1px #ffffff18,0 14px 38px #000b;backdrop-filter:blur(22px);transition:.18s}
+.account-entry-button:hover,.account-entry-wrap.open .account-entry-button{border-color:#ffffff3a;background:#202027;transform:translateY(-1px)}
+.account-entry-button svg{width:20px;height:20px}
+.account-popover{position:absolute;left:0;bottom:calc(100% + 10px);display:flex;width:210px;flex-direction:column;gap:6px;border:1px solid #ffffff1c!important;border-radius:18px;padding:10px;background:#101013ee!important;box-shadow:inset 0 1px #ffffff14,0 22px 64px #000d;backdrop-filter:blur(24px)}
+.account-popover-head{display:flex;align-items:center;gap:10px;padding:5px 5px 9px;border-bottom:1px solid #ffffff10}
+.account-avatar{display:grid;place-items:center;width:34px;height:34px;border-radius:50%;background:#ffffff12;color:#fff;font-size:13px}
+.account-popover-head div{display:flex;min-width:0;flex-direction:column;gap:2px}
+.account-popover-head b{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:#fff;font-size:13px}
+.account-popover-head small{color:#ffffff72;font-size:10px}
+.account-popover a,.account-popover button{display:flex;align-items:center;gap:9px;min-height:36px;border:0;border-radius:11px;padding:0 9px;background:transparent;color:#ffffffe0;text-decoration:none;font:inherit;font-size:12px;text-align:left}
+.account-popover a:hover,.account-popover button:hover{background:#ffffff10;color:#fff}
+.account-popover svg{width:15px;height:15px}
+
+/* Canvas polish: selection highlight, menu fade-in, slider transition, empty-state spacing, reduced-motion fallback. */
+.react-flow__node.selected .canvas-node{border-color:color-mix(in srgb,var(--accent,#a996ff) 68%,white)}
+.canvas-node .react-flow__handle.port::before{content:"";position:absolute;inset:-8px;border-radius:50%}
+@keyframes canvasMenuIn{from{opacity:0}to{opacity:1}}
+.node-menu,.node-context-menu,.material-item-menu,.selection-action-pop{animation:canvasMenuIn .14s ease-out}
+@keyframes canvasPanelIn{from{opacity:0;transform:translateX(-12px)}to{opacity:1;transform:translateX(0)}}
+.material-library-panel{animation:canvasPanelIn .18s ease-out}
+.canvas-control-bar input::-moz-range-thumb{transition:transform .16s}
+.canvas-shell .empty-canvas{gap:12px}
+.canvas-shell .empty-canvas svg{padding:8px}
+@media (prefers-reduced-motion: reduce){
+  .node-menu,.node-context-menu,.material-item-menu,.selection-action-pop,.material-library-panel{animation:none!important}
+  .canvas-control-bar input::-webkit-slider-thumb,.canvas-control-bar input::-moz-range-thumb{transition:none!important}
+  .agent-fab img{animation:none!important}
+}

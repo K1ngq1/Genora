@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -35,6 +35,7 @@ import {
   type CanvasRatio,
   type CanvasResolution,
 } from "@/lib/model-catalog";
+import { getProviderLogo } from "@/lib/provider-logo-map";
 import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
 import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
 
@@ -68,6 +69,8 @@ type IconName =
   | "chevron"
   | "copy"
   | "trash"
+  | "user"
+  | "logout"
   | "model-wave"
   | "model-bars"
   | "model-google"
@@ -396,6 +399,13 @@ function Icon({ name }: { name: IconName }) {
     chevron: <path d="m9 18 6-6-6-6" />,
     copy: <path d="M8 8h10v10H8zM6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
     trash: <path d="M4 7h16m-10 4v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />,
+    user: (
+      <>
+        <circle cx="12" cy="8" r="3.5" />
+        <path d="M5 20a7 7 0 0 1 14 0" />
+      </>
+    ),
+    logout: <path d="M10 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4M15 7l5 5-5 5M20 12H9" />,
     "model-wave": <path d="M3.5 14c3.2-5.8 11.8-7.2 14.8-4.8 1.9 1.5-1.3 3.1-5.2 3.5-4.5.5-7.8 1.9-6.8 3.5 1.4 2.1 7.5 1.2 14.2-1.6" />,
     "model-bars": (
       <>
@@ -417,18 +427,6 @@ function Icon({ name }: { name: IconName }) {
   );
 }
 
-function modelIconName(modelId: string, kind: "image" | "video"): IconName {
-  const id = modelId.toLowerCase();
-  if (id.includes("gemini")) return "model-google";
-  if (id.includes("gpt")) return "model-openai";
-  if (id.includes("kling")) return "model-kling";
-  if (id.includes("happyhorse")) return "model-horse";
-  if (id.includes("grok")) return "model-xai";
-  if (id.includes("agnes")) return "model-agnes";
-  if (id.includes("seedance") || id.includes("doubao")) return "model-bars";
-  return kind === "video" ? "model-bars" : "model-wave";
-}
-
 function modelLogoClass(modelId: string) {
   const id = modelId.toLowerCase();
   if (id.includes("gemini")) return "model-logo-google";
@@ -439,6 +437,15 @@ function modelLogoClass(modelId: string) {
   if (id.includes("agnes")) return "model-logo-agnes";
   if (id.includes("seedance") || id.includes("doubao")) return "model-logo-seedance";
   return "model-logo-generic";
+}
+
+function ModelLogoMark({ model, className = "" }: { model: ReturnType<typeof getModelDefinition>; className?: string }) {
+  const logo = getProviderLogo(model.developer);
+  return (
+    <span className={`model-logo-mark ${modelLogoClass(model.id)} ${logo.src ? "has-logo" : "empty-logo"} ${className}`} title={logo.label}>
+      {logo.src ? <img src={logo.src} alt="" /> : null}
+    </span>
+  );
 }
 
 function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
@@ -463,6 +470,9 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.hasImageInput),
   }) : 0;
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
+  const textLengthClass = data.result && data.kind === "text"
+    ? data.result.length > 900 ? "text-long" : data.result.length > 420 ? "text-medium" : "text-short"
+    : "";
   const importMedia = async (file?: File) => {
     if (!file) return;
     try {
@@ -538,7 +548,7 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
 
   return (
     <article
-      className={`canvas-node glass ${data.kind} ${data.url ? "has-media" : ""} ${data.selectionSuppressed ? "selection-suppressed" : ""}`}
+      className={`canvas-node glass ${data.kind} ${textLengthClass} ${data.url ? "has-media" : ""} ${data.selectionSuppressed ? "selection-suppressed" : ""}`}
       style={mediaLayout ? ({ width: `${mediaLayout.width}px`, "--media-aspect": mediaLayout.aspectRatio } as CSSProperties) : undefined}
     >
       <Handle type="target" position={Position.Left} className="port left" />
@@ -695,13 +705,13 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             {selectedModel && (
               <div className={`model-picker ${modelOpen ? "open" : ""}`}>
                 <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
-                  <span className={`model-logo-mark ${modelLogoClass(selectedModel.id)}`}><Icon name={modelIconName(selectedModel.id, selectedModel.kind)} /></span>
+                  <ModelLogoMark model={selectedModel} />
                   <span>{selectedModel.label}</span>
                 </button>
                 {modelOpen && (
                   <div className="model-menu">
                     {availableModels.map((model) => <button type="button" key={model.id} className={selectedModel.id === model.id ? "selected" : ""} onClick={(event) => { event.stopPropagation(); selectModel(model.id); }}>
-                      <span className={`model-logo-mark ${modelLogoClass(model.id)}`}><Icon name={modelIconName(model.id, model.kind)} /></span>
+                      <ModelLogoMark model={model} />
                       <span><b>{model.label}</b><small>{modelCapabilityLabel(model)}</small></span>
                       <em>{model.free ? "Free" : model.id === selectedModel.id ? "✓" : ""}</em>
                     </button>)}
@@ -776,7 +786,42 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   );
 }
 
-const nodeTypes = { work: WorkflowNode };
+function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNode>): boolean {
+  if (prev.id !== next.id) return false;
+  const a = prev.data;
+  const b = next.data;
+  return (
+    a.kind === b.kind &&
+    a.title === b.title &&
+    a.prompt === b.prompt &&
+    a.ratio === b.ratio &&
+    a.quality === b.quality &&
+    a.model === b.model &&
+    a.motionPreset === b.motionPreset &&
+    a.duration === b.duration &&
+    a.settingsOpen === b.settingsOpen &&
+    a.negativePrompt === b.negativePrompt &&
+    a.negativePromptOpen === b.negativePromptOpen &&
+    a.url === b.url &&
+    a.startFrameUrl === b.startFrameUrl &&
+    a.startFrameName === b.startFrameName &&
+    a.endFrameUrl === b.endFrameUrl &&
+    a.endFrameName === b.endFrameName &&
+    a.result === b.result &&
+    a.taskId === b.taskId &&
+    a.busy === b.busy &&
+    a.error === b.error &&
+    a.canResume === b.canResume &&
+    a.lastProviderStatus === b.lastProviderStatus &&
+    a.selectionSuppressed === b.selectionSuppressed &&
+    a.hasImageInput === b.hasImageInput &&
+    a.actualCredits === b.actualCredits
+  );
+}
+
+const MemoizedWorkflowNode = memo(WorkflowNode, areWorkNodePropsEqual);
+
+const nodeTypes = { work: MemoizedWorkflowNode };
 
 function nodeSize(node: WorkNode) {
   const style = node.style as { width?: number | string; height?: number | string } | undefined;
@@ -805,6 +850,7 @@ function WorkflowCanvas() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [orbOpen, setOrbOpen] = useState(false);
   const [homeMenuOpen, setHomeMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
   const [materialLibraryOpen, setMaterialLibraryOpen] = useState(false);
   const [materialLibrary, setMaterialLibrary] = useState<MaterialLibraryItem[]>([]);
@@ -829,6 +875,23 @@ function WorkflowCanvas() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState("");
   const [, setCanUndoDelete] = useState(false);
+
+  useEffect(() => {
+    if (!userMenuOpen) return;
+    const closeOnOutside = (event: MouseEvent) => {
+      if ((event.target as HTMLElement).closest(".account-entry-wrap")) return;
+      setUserMenuOpen(false);
+    };
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setUserMenuOpen(false);
+    };
+    document.addEventListener("mousedown", closeOnOutside);
+    window.addEventListener("keydown", closeOnEscape);
+    return () => {
+      document.removeEventListener("mousedown", closeOnOutside);
+      window.removeEventListener("keydown", closeOnEscape);
+    };
+  }, [userMenuOpen]);
   const agentHasConversation = agentMessages.length > 0 || agentBusy;
   const saveLabel = {
     loading: "正在加载项目",
@@ -851,6 +914,7 @@ function WorkflowCanvas() {
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
+  const saveProjectRef = useRef<((name?: string) => Promise<boolean>) | undefined>(undefined);
   const imagePicker = useRef<HTMLInputElement>(null);
   const videoPicker = useRef<HTMLInputElement>(null);
   const libraryPicker = useRef<HTMLInputElement>(null);
@@ -1371,8 +1435,12 @@ function WorkflowCanvas() {
       } else {
         update(id, { busy: false, result: body.text, url: body.outputUrl, error: "" });
       }
+      // auto-save after task submission
+      setTimeout(() => { if (saveProjectRef.current) void saveProjectRef.current(); }, 80);
     } catch (error) {
       update(id, { busy: false, error: error instanceof Error ? localizeError(error.message) : "生成失败" });
+      // auto-save on task failure
+      setTimeout(() => { if (saveProjectRef.current) void saveProjectRef.current(); }, 80);
     }
   }, [pollTask, update]);
   useEffect(() => {
@@ -2122,7 +2190,7 @@ function WorkflowCanvas() {
         defaultEdgeOptions={{ animated: true }}
         proOptions={{ hideAttribution: true }}
       >
-        {gridVisible && <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#ffffff24" />}
+        {gridVisible && <Background variant={BackgroundVariant.Dots} gap={22} size={zoom < 0.55 ? 1.9 : 1.15} color={zoom < 0.55 ? "#ffffff42" : "#ffffff2e"} />}
         {miniMapOpen && <MiniMap position="bottom-right" pannable zoomable nodeColor="#8f7df5" maskColor="#050507a8" />}
         {!materialLibraryOpen && (
           <Panel position="top-left" className="sidebar glass">
@@ -2264,6 +2332,22 @@ function WorkflowCanvas() {
         <button title="适配画布" onClick={() => reactFlow.fitView({ duration: 220, maxZoom: 0.82 })}><Icon name="fit" /></button>
         <input aria-label="缩放画布" type="range" min="25" max="200" value={Math.round(zoom * 100)} onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)} />
         <button title="画布设置" className={orbOpen ? "selected" : ""} onClick={() => setOrbOpen((current) => !current)}><Icon name="settings" /></button>
+      </div>
+
+      <div className={`account-entry-wrap ${userMenuOpen ? "open" : ""}`}>
+        <button className="account-entry-button" type="button" aria-label="用户账号" title="用户账号" onClick={() => setUserMenuOpen((current) => !current)}>
+          <Icon name="user" />
+        </button>
+        {userMenuOpen && (
+          <div className="account-popover glass">
+            <div className="account-popover-head">
+              <span className="account-avatar">G</span>
+              <div><b>{TEMP_USER_NAME}</b><small>genora.local</small></div>
+            </div>
+            <Link href="/" onClick={() => setUserMenuOpen(false)}><Icon name="user" />个人主页</Link>
+            <button type="button" onClick={() => setUserMenuOpen(false)}><Icon name="logout" />退出登录</button>
+          </div>
+        )}
       </div>
 
       {orbOpen && (
