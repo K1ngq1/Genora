@@ -36,6 +36,12 @@ import {
   type CanvasResolution,
 } from "@/lib/model-catalog";
 import { getProviderLogo } from "@/lib/provider-logo-map";
+import {
+  getVideoModelCapabilities,
+  sanitizeVideoOptionsForModel,
+  videoModeLabels,
+  type VideoGenerationMode,
+} from "@/lib/video-model-capabilities";
 import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
 import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
 
@@ -87,6 +93,7 @@ type WorkData = {
   ratio: Ratio;
   quality: Quality;
   model?: string;
+  videoMode?: VideoGenerationMode;
   motionPreset?: MotionPreset;
   duration: number;
   settingsOpen?: boolean;
@@ -97,6 +104,8 @@ type WorkData = {
   startFrameName?: string;
   endFrameUrl?: string;
   endFrameName?: string;
+  referenceFrameUrls?: string[];
+  referenceFrameNames?: string[];
   result?: string;
   taskId?: string;
   busy?: boolean;
@@ -452,6 +461,7 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const picker = useRef<HTMLInputElement>(null);
   const startFramePicker = useRef<HTMLInputElement>(null);
   const endFramePicker = useRef<HTMLInputElement>(null);
+  const referenceFramePicker = useRef<HTMLInputElement>(null);
   const meta = KIND_META[data.kind];
   const isMedia = data.kind.startsWith("media-");
   const [motionOpen, setMotionOpen] = useState(false);
@@ -463,11 +473,29 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const selectedModel = generationKind ? getModelDefinition(selectedModelId) : undefined;
   const availableModels = generationKind ? modelsForKind(generationKind) : [];
   const qualityOptions = data.kind === "video" ? VIDEO_QUALITIES : selectedModel?.resolutions ?? [];
+  const videoCapabilities = data.kind === "video" && selectedModel ? getVideoModelCapabilities(selectedModel.id) : undefined;
+  const videoOptions = videoCapabilities ? sanitizeVideoOptionsForModel(selectedModelId, {
+    mode: data.videoMode,
+    aspectRatio: data.ratio,
+    resolution: data.quality,
+    duration: data.duration,
+    hasStartFrame: Boolean(data.startFrameUrl),
+    hasEndFrame: Boolean(data.endFrameUrl),
+    hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
+  }) : undefined;
+  const videoSettingsSummary = videoOptions
+    ? `${videoModeLabels[videoOptions.mode]} · ${videoOptions.aspectRatio} · ${qualityLabel(videoOptions.resolution)} · ${videoOptions.duration}s`
+    : "";
+  const referenceFrameUrls = data.referenceFrameUrls ?? [];
+  const referenceFrameNames = data.referenceFrameNames ?? [];
+  const maxReferenceImages = videoCapabilities?.maxReferenceImages ?? 0;
+  const canAddReferenceFrame = maxReferenceImages === 0 || referenceFrameUrls.length < maxReferenceImages;
+  const frameMode = videoOptions?.mode ?? "text";
   const estimatedCredits = selectedModel ? estimateCredits({
     model: selectedModel.id,
     resolution: data.quality,
     duration: data.duration,
-    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.hasImageInput),
+    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.referenceFrameUrls?.length || data.hasImageInput),
   }) : 0;
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
   const textLengthClass = data.result && data.kind === "text"
@@ -505,10 +533,35 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
       data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
     }
   };
+  const importReferenceFrames = async (files: File[]) => {
+    if (!files.length || !videoCapabilities?.supportsReferenceImages || !canAddReferenceFrame) return;
+    const slots = maxReferenceImages ? Math.max(0, maxReferenceImages - referenceFrameUrls.length) : files.length;
+    const accepted = files.slice(0, slots).filter((file) => file.type.startsWith("image/"));
+    if (!accepted.length) {
+      data.update(id, { error: "REFERENCE_IMAGE_ONLY" });
+      return;
+    }
+    try {
+      const uploaded = await Promise.all(accepted.map(async (file) => ({ name: file.name, url: await data.uploadAsset(file) })));
+      data.update(id, {
+        referenceFrameUrls: [...referenceFrameUrls, ...uploaded.map((item) => item.url)].slice(0, maxReferenceImages || undefined),
+        referenceFrameNames: [...referenceFrameNames, ...uploaded.map((item) => item.name)].slice(0, maxReferenceImages || undefined),
+        error: "",
+      });
+    } catch (error) {
+      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
+    }
+  };
   const removeFrame = (slot: "start" | "end") => {
     data.update(id, slot === "start"
       ? { startFrameUrl: undefined, startFrameName: undefined }
       : { endFrameUrl: undefined, endFrameName: undefined });
+  };
+  const removeReferenceFrame = (index: number) => {
+    data.update(id, {
+      referenceFrameUrls: referenceFrameUrls.filter((_, itemIndex) => itemIndex !== index),
+      referenceFrameNames: referenceFrameNames.filter((_, itemIndex) => itemIndex !== index),
+    });
   };
   const openNextFramePicker = () => {
     if (!data.startFrameUrl) {
@@ -522,8 +575,30 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     endFramePicker.current?.click();
   };
   const selectModel = (modelId: string) => {
-    const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
-    data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
+    const model = getModelDefinition(modelId);
+    if (model.kind === "video") {
+      const normalized = sanitizeVideoOptionsForModel(modelId, {
+        mode: data.videoMode,
+        aspectRatio: data.ratio,
+        resolution: data.quality,
+        duration: data.duration,
+        hasStartFrame: Boolean(data.startFrameUrl),
+        hasEndFrame: Boolean(data.endFrameUrl),
+        hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
+      });
+      data.update(id, {
+        model: modelId,
+        videoMode: normalized.mode,
+        ratio: normalized.aspectRatio,
+        quality: normalized.resolution,
+        duration: normalized.duration,
+        settingsOpen: false,
+        error: "",
+      });
+    } else {
+      const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
+      data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
+    }
     setModelOpen(false);
   };
   const updateMediaLayout = (width: number, height: number) => {
@@ -631,12 +706,12 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                   </div>
                 </div>
               )}
-              {data.kind === "video" && (
+              {data.kind === "video" && frameMode !== "reference" && frameMode !== "text" && (
                 <>
                   <div className="frame-slot start-frame-slot">
-                    <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()}>
-                      {data.startFrameUrl ? <img src={data.startFrameUrl} alt="首帧" /> : <Icon name="image" />}
-                      <b>首帧</b>
+                    <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()} aria-label="首帧">
+                      {data.startFrameUrl ? <img src={data.startFrameUrl} alt="" /> : <Icon name="image" />}
+                      <span className="frame-tooltip">首帧</span>
                     </button>
                     {data.startFrameUrl && (
                       <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
@@ -644,11 +719,11 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                       </button>
                     )}
                   </div>
-                  {selectedModel?.supportsEndFrame && (
+                  {frameMode === "first-last" && videoCapabilities?.supportsFirstLastFrame && (
                     <div className="frame-slot end-frame-slot">
-                      <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()}>
-                        {data.endFrameUrl ? <img src={data.endFrameUrl} alt="尾帧" /> : <Icon name="image" />}
-                        <b>尾帧</b>
+                      <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()} aria-label="尾帧">
+                        {data.endFrameUrl ? <img src={data.endFrameUrl} alt="" /> : <Icon name="image" />}
+                        <span className="frame-tooltip">尾帧</span>
                       </button>
                       {data.endFrameUrl && (
                         <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
@@ -659,37 +734,54 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                   )}
                 </>
               )}
-              {data.startFrameUrl && (
+              {data.kind === "video" && frameMode === "reference" && videoCapabilities?.supportsReferenceImages && (
+                <div className="reference-frame-grid">
+                  {referenceFrameUrls.map((url, index) => (
+                    <div className="frame-slot reference-frame-slot" key={`${url}-${index}`}>
+                      <button type="button" className="frame-chip filled" onClick={() => referenceFramePicker.current?.click()} aria-label={`参考图 ${index + 1}`}>
+                        <img src={url} alt="" />
+                        <span className="frame-tooltip">参考</span>
+                      </button>
+                      <button type="button" className="frame-remove" aria-label="删除参考图" onClick={(event) => { event.stopPropagation(); removeReferenceFrame(index); }}>
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  ))}
+                  {canAddReferenceFrame && (
+                    <button type="button" className="frame-add reference-frame-add" aria-label="添加参考图" onClick={() => referenceFramePicker.current?.click()}>
+                      <Icon name="plus" />
+                      <span className="frame-tooltip">参考</span>
+                    </button>
+                  )}
+                </div>
+              )}
+              {data.kind === "image" && data.startFrameUrl && (
                 <div className="frame-chip-wrap">
                   <button type="button" className="frame-chip filled" onClick={() => startFramePicker.current?.click()}>
-                    <img src={data.startFrameUrl} alt="首帧" />
-                    <span>首帧</span>
+                    <img src={data.startFrameUrl} alt="" />
+                    <span className="frame-tooltip">首帧</span>
                   </button>
                   <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
                     <Icon name="close" />
                   </button>
                 </div>
               )}
-              {data.endFrameUrl && (
-                <div className="frame-chip-wrap">
-                  <button type="button" className="frame-chip filled" onClick={() => endFramePicker.current?.click()}>
-                    <img src={data.endFrameUrl} alt="尾帧" />
-                    <span>尾帧</span>
-                  </button>
-                  <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
-                    <Icon name="close" />
-                  </button>
-                </div>
+              {data.kind === "image" && (
+                <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
+                  <Icon name="plus" />
+                  <span className="frame-tooltip">首帧</span>
+                </button>
               )}
-              <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
-                <Icon name="plus" />
-              </button>
               <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                 importFrame("start", event.target.files?.[0]);
                 event.target.value = "";
               }} />
               <input ref={endFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                 importFrame("end", event.target.files?.[0]);
+                event.target.value = "";
+              }} />
+              <input ref={referenceFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => {
+                void importReferenceFrames(Array.from(event.target.files ?? []));
                 event.target.value = "";
               }} />
             </div>
@@ -723,35 +815,73 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
               <div className={`settings-details ${data.settingsOpen ? "open" : ""}`}>
                 <button type="button" className="settings-trigger" onClick={(event) => { event.stopPropagation(); setModelOpen(false); data.update(id, { settingsOpen: !data.settingsOpen }); }}>
                   <i className={`ratio-shape ratio-${data.ratio.replace(":", "-")}`} />
-                  {data.ratio} · {qualityLabel(data.quality)}
+                  <span className={data.kind === "video" ? "video-settings-summary" : ""}>
+                    {data.kind === "video" ? videoSettingsSummary : `${data.ratio} · ${qualityLabel(data.quality)}`}
+                  </span>
                 </button>
-                {data.settingsOpen && <div className="node-options">
-                  <div className="option-block">
-                    <span>画质与分辨率</span>
-                    <div className="quality-options">
-                      {qualityOptions.map((quality) => {
-                        const supported = selectedModel.resolutions.includes(quality);
-                        return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${qualityLabel(quality)}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{qualityLabel(quality)}</button>;
-                      })}
+                {data.settingsOpen && (
+                  data.kind === "video" && videoCapabilities && videoOptions ? (
+                    <div className="node-options video-node-options">
+                      <div className="option-block">
+                        <span>生成方式</span>
+                        <div className="video-mode-options">
+                          {videoCapabilities.supportedModes.filter((mode) => mode !== "text").map((mode) => (
+                            <button key={mode} className={videoOptions.mode === mode ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { videoMode: mode }); }}>{videoModeLabels[mode]}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>比例</span>
+                        <div className="ratio-options video-ratio-options">
+                          {videoCapabilities.aspectRatios.map((ratio) => (
+                            <button key={ratio} className={videoOptions.aspectRatio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { ratio }); }}>
+                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>清晰度</span>
+                        <div className="quality-options">
+                          {videoCapabilities.resolutions.map((quality) => (
+                            <button key={quality} className={videoOptions.resolution === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { quality }); }}>{qualityLabel(quality)}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>生成时长</span>
+                        <div className="quality-options duration-options">
+                          {videoCapabilities.durations.map((duration) => (
+                            <button key={duration} className={videoOptions.duration === duration ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { duration }); }}>{duration}s</button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="option-block">
-                    <span>比例</span>
-                    <div className="ratio-options">
-                      {RATIOS.map((ratio) => {
-                        const supported = selectedModel.ratios.includes(ratio);
-                        return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
-                          <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
-                        </button>;
-                      })}
+                  ) : (
+                    <div className="node-options">
+                      <div className="option-block">
+                        <span>画质与分辨率</span>
+                        <div className="quality-options">
+                          {qualityOptions.map((quality) => {
+                            const supported = selectedModel.resolutions.includes(quality);
+                            return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${qualityLabel(quality)}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{qualityLabel(quality)}</button>;
+                          })}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>比例</span>
+                        <div className="ratio-options">
+                          {RATIOS.map((ratio) => {
+                            const supported = selectedModel.ratios.includes(ratio);
+                            return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
+                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
+                            </button>;
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  {data.kind === "video" && <div className="option-block duration-block">
-                    <span>生成时长 <b>{data.duration} 秒</b></span>
-                    <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} step="1" value={data.duration} onChange={(event) => data.update(id, { duration: Number(event.target.value) })} />
-                    <div><small>{selectedModel.minDuration ?? 1} 秒</small><small>按模型能力</small><small>{selectedModel.maxDuration ?? 18} 秒</small></div>
-                  </div>}
-                </div>}
+                  )
+                )}
               </div>
             )}
             {data.kind === "video" && selectedModel?.supportsNegativePrompt && (
@@ -771,7 +901,6 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                 )}
               </div>
             )}
-            {data.kind === "video" && <span>{data.duration} 秒</span>}
             {selectedModel && <span className={`generation-cost ${selectedModel.free ? "free" : ""}`}>{selectedModel.free ? "Free" : `预计 ${estimatedCredits.toFixed(2).replace(/\.00$/, "")} 积分`}</span>}
             <button className="generate-button-submit" aria-label={data.busy ? "打断生成" : "生成"} title={data.busy ? "打断生成" : "生成"} onClick={() => data.generate(id)}>
               <span className="submit-credit-mark"><Icon name={data.busy ? "stop" : "spark"} /></span>
@@ -797,6 +926,7 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.ratio === b.ratio &&
     a.quality === b.quality &&
     a.model === b.model &&
+    a.videoMode === b.videoMode &&
     a.motionPreset === b.motionPreset &&
     a.duration === b.duration &&
     a.settingsOpen === b.settingsOpen &&
@@ -807,6 +937,8 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.startFrameName === b.startFrameName &&
     a.endFrameUrl === b.endFrameUrl &&
     a.endFrameName === b.endFrameName &&
+    a.referenceFrameUrls === b.referenceFrameUrls &&
+    a.referenceFrameNames === b.referenceFrameNames &&
     a.result === b.result &&
     a.taskId === b.taskId &&
     a.busy === b.busy &&
@@ -1356,7 +1488,7 @@ function WorkflowCanvas() {
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
     if (modelDefinition?.provider === "agnes" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 Agnes API Key。" });
-    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
+    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
       return update(id, { error: "请先在 .env 中配置 SUPABASE_SERVICE_ROLE_KEY。" });
     }
 
@@ -1385,11 +1517,20 @@ function WorkflowCanvas() {
         });
       } else {
         const model = modelDefinition ?? getModelDefinition("agnes-video-v2.0");
-        const requestedQuality = node.data.quality;
-        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((node.data.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
+        const normalizedVideoOptions = sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))),
+        });
+        const requestedQuality = normalizedVideoOptions.resolution;
+        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((normalizedVideoOptions.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
         const safeQuality = model.provider === "agnes" ? (requestedQuality === "720p" ? requestedQuality : SAFE_VIDEO_QUALITY) : requestedQuality;
         const safeFrames = model.provider === "agnes" ? Math.min(SAFE_VIDEO_MAX_FRAMES, requestedFrames) : requestedFrames;
-        const { width, height } = getVideoDimensions(node.data.ratio, safeQuality);
+        const { width, height } = getVideoDimensions(normalizedVideoOptions.aspectRatio, safeQuality);
         if (model.provider === "agnes" && (requestedQuality !== safeQuality || requestedFrames !== safeFrames)) {
           update(id, {
             result: `已按稳定生成策略提交：${safeQuality.toUpperCase()} · ${safeFrames} 帧。高画质或长时长容易触发 Agnes 上游显存不足。`,
@@ -1398,11 +1539,11 @@ function WorkflowCanvas() {
         const form = new FormData();
         form.set("prompt", prompt);
         form.set("model", model.id);
-        form.set("ratio", node.data.ratio);
-        form.set("aspectRatio", node.data.ratio);
-        form.set("resolution", node.data.quality);
-        form.set("quality", node.data.quality);
-        form.set("duration", String(node.data.duration));
+        form.set("ratio", normalizedVideoOptions.aspectRatio);
+        form.set("aspectRatio", normalizedVideoOptions.aspectRatio);
+        form.set("resolution", normalizedVideoOptions.resolution);
+        form.set("quality", normalizedVideoOptions.resolution);
+        form.set("duration", String(normalizedVideoOptions.duration));
         if (node.data.negativePrompt) form.set("negativePrompt", node.data.negativePrompt);
         form.set("width", String(width));
         form.set("height", String(height));
@@ -1414,15 +1555,24 @@ function WorkflowCanvas() {
           form.set("motionPrompt", motion.prompt);
         }
         const imageSources = upstream.filter((item) => item.data.url && !item.data.kind.includes("video"));
-        if (node.data.startFrameUrl) {
+        const shouldUseStartFrame = normalizedVideoOptions.mode === "first-frame" || normalizedVideoOptions.mode === "first-last";
+        const shouldUseEndFrame = normalizedVideoOptions.mode === "first-last";
+        const shouldUseReferences = normalizedVideoOptions.mode === "reference";
+        if (shouldUseStartFrame && node.data.startFrameUrl) {
           await appendImageFromUrl(form, "startFrame", node.data.startFrameUrl, node.data.startFrameName ?? "reference-start.png");
         }
-        if (node.data.endFrameUrl) {
+        if (shouldUseEndFrame && node.data.endFrameUrl) {
           await appendImageFromUrl(form, "endFrame", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png");
         }
-        for (const [index, source] of imageSources.entries()) {
-          if (source.data.url) {
-            await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
+        if (shouldUseReferences) {
+          const nodeReferenceUrls = node.data.referenceFrameUrls ?? [];
+          for (const [index, url] of nodeReferenceUrls.entries()) {
+            await appendImageFromUrl(form, "referenceImages", url, node.data.referenceFrameNames?.[index] || `reference-${index + 1}.png`, "append");
+          }
+          for (const [index, source] of imageSources.entries()) {
+            if (source.data.url) {
+              await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
+            }
           }
         }
         response = await fetch("/api/videos/generate", { method: "POST", body: form });
@@ -1615,6 +1765,7 @@ function WorkflowCanvas() {
         return;
       }
     }
+    const videoDefaults = kind === "video" ? sanitizeVideoOptionsForModel("kling-v3-omni", {}) : undefined;
     markUnsaved();
     setNodes((current) => [...current, {
       id,
@@ -1624,11 +1775,12 @@ function WorkflowCanvas() {
         kind,
         title: file?.name ?? KIND_META[kind].title,
         prompt: "",
-        ratio: kind === "video" ? "16:9" : "1:1",
-        quality: kind === "video" ? "720p" : "1k",
+        ratio: videoDefaults?.aspectRatio ?? (kind === "video" ? "16:9" : "1:1"),
+        quality: videoDefaults?.resolution ?? (kind === "video" ? "720p" : "1k"),
         model: kind === "image" ? "gpt-image-2" : kind === "video" ? "kling-v3-omni" : undefined,
+        videoMode: videoDefaults?.mode,
         motionPreset: kind === "video" ? "auto" : undefined,
-        duration: 5,
+        duration: videoDefaults?.duration ?? 5,
         negativePrompt: "",
         url: persistentUrl,
         uploadAsset: (nextFile) => uploadAssetRef.current(nextFile),
@@ -1909,17 +2061,29 @@ function WorkflowCanvas() {
       if (cancelled) return;
 
       const hydratedNodes = loaded.canvasData.nodes.map((node) => {
-        const model = node.data.kind === "image"
-          ? getModelDefinition(node.data.model ?? "agnes-image-2.1-flash")
+        const model = node.data.kind === "image" || node.data.kind === "video"
+          ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0"))
           : undefined;
-        const quality = model && !model.resolutions.includes(node.data.quality)
+        const videoOptions = node.data.kind === "video" && model ? sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || node.data.hasImageInput),
+        }) : undefined;
+        const quality = videoOptions?.resolution ?? (model && !model.resolutions.includes(node.data.quality)
           ? model.defaultResolution
-          : node.data.quality;
+          : node.data.quality);
         return {
           ...node,
           data: {
             ...node.data,
+            ratio: videoOptions?.aspectRatio ?? node.data.ratio,
             quality,
+            videoMode: videoOptions?.mode ?? node.data.videoMode,
+            duration: videoOptions?.duration ?? node.data.duration,
             busy: false,
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
@@ -1944,6 +2108,11 @@ function WorkflowCanvas() {
           resolution: launchKind === "video" ? "720p" : "1k",
           duration: 5,
         });
+        const videoOptions = launchKind === "video" ? sanitizeVideoOptionsForModel(modelId, {
+          aspectRatio: options.ratio,
+          resolution: options.resolution,
+          duration: options.duration,
+        }) : undefined;
         launchNodes = [{
           id: randomUuid(),
           type: "work",
@@ -1952,11 +2121,12 @@ function WorkflowCanvas() {
             kind: launchKind,
             title: KIND_META[launchKind].title,
             prompt: launchPrompt,
-            ratio: options.ratio,
-            quality: options.resolution,
+            ratio: videoOptions?.aspectRatio ?? options.ratio,
+            quality: videoOptions?.resolution ?? options.resolution,
             model: modelId,
+            videoMode: videoOptions?.mode,
             motionPreset: launchKind === "video" ? "auto" : undefined,
-            duration: launchKind === "video" ? options.duration : 0,
+            duration: launchKind === "video" ? videoOptions?.duration ?? options.duration : 0,
             negativePrompt: "",
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
