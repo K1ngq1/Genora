@@ -142,6 +142,17 @@ type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x: numbe
 type CanvasClipboard = { nodes: StoredWorkNode[]; edges: Edge[] };
 type AgentMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type AgentAttachment = { id: string; kind: "image" | "video"; name: string; url: string; dataUrl?: string };
+type AgentToolCall = { id: string; function: { name: string; arguments: string } };
+type AgentTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
+
+const AGENT_TOOL_NAMES = new Set(["addNode", "updateNode", "removeNode", "generateNode", "addEdge"]);
+const AGENT_CANVAS_TOOLS: AgentTool[] = [
+  { type: "function", function: { name: "addNode", description: "在画布上添加一个生成节点(text/image/video),可设置提示词和位置。", parameters: { type: "object", properties: { type: { type: "string", enum: ["text", "image", "video"], description: "节点类型" }, prompt: { type: "string", description: "生成提示词(可选)" }, position: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, description: "画布坐标(可选)" } }, required: ["type"] } } },
+  { type: "function", function: { name: "updateNode", description: "修改指定节点的字段。", parameters: { type: "object", properties: { nodeId: { type: "string" }, patch: { type: "object", properties: { prompt: { type: "string" }, title: { type: "string" }, ratio: { type: "string", enum: ["1:1", "4:3", "3:4", "16:9", "9:16"] } } } }, required: ["nodeId", "patch"] } } },
+  { type: "function", function: { name: "removeNode", description: "删除指定节点。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "generateNode", description: "触发指定节点的生成。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "addEdge", description: "连接两个节点,把 source 的输出作为 target 的输入。", parameters: { type: "object", properties: { sourceNodeId: { type: "string" }, targetNodeId: { type: "string" } }, required: ["sourceNodeId", "targetNodeId"] } } },
+];
 type CanvasProject = {
   id: string;
   name: string;
@@ -998,6 +1009,7 @@ function WorkflowCanvas() {
   const [agentInput, setAgentInput] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentCanUndo, setAgentCanUndo] = useState(false);
   const [agentAttachments, setAgentAttachments] = useState<AgentAttachment[]>([]);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -1043,6 +1055,8 @@ function WorkflowCanvas() {
   const projectLoadedRef = useRef(false);
   const dirtyRef = useRef(false);
   const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
+  const agentSnapshotRef = useRef<{ nodes: WorkNode[]; edges: Edge[] } | null>(null);
+  const executedToolCallIdsRef = useRef<Set<string>>(new Set());
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
@@ -1383,18 +1397,26 @@ function WorkflowCanvas() {
   }, [copyCanvasSelection, cutCanvasSelection, deleteCanvasNodes, pasteCanvasSelection, restoreDeletedCanvas, selectedIds]);
   const setCanvasZoom = useCallback((value: number) => reactFlow.zoomTo(Math.min(2, Math.max(0.25, value)), { duration: 160 }), [reactFlow]);
   const canvasSummary = useCallback(() => {
-    const list = nodesRef.current.map((node, index) => {
-      const kind = KIND_META[node.data.kind]?.title ?? node.data.kind;
-      const parts = [
-        node.data.prompt ? `提示词：${node.data.prompt}` : "",
-        node.data.result ? `结果：${node.data.result}` : "",
-        node.data.url ? `素材/结果：${node.data.title}` : "",
-        node.data.error ? `错误：${node.data.error}` : "",
-      ].filter(Boolean).join("；");
-      return `${index + 1}. ${kind}节点「${node.data.title}」：${parts || "暂无内容"}`;
+    if (!nodesRef.current.length) return "画布当前没有节点。";
+    const lines = nodesRef.current.map((node) => {
+      const d = node.data;
+      const status = d.error ? "error" : d.busy ? "generating" : (d.url || d.result) ? "done" : "idle";
+      const connected = edgesRef.current
+        .filter((edge) => edge.source === node.id || edge.target === node.id)
+        .map((edge) => (edge.source === node.id ? edge.target : edge.source));
+      const fields = [
+        `id:${node.id}`,
+        `type:${d.kind}`,
+        `title:${d.title}`,
+        d.prompt ? `prompt:${d.prompt}` : "",
+        `status:${status}`,
+        d.url ? `outputUrl:${d.url}` : "",
+        `position:(${Math.round(node.position.x)},${Math.round(node.position.y)})`,
+        connected.length ? `connectedNodeIds:${connected.join(",")}` : "",
+      ].filter(Boolean).join(" | ");
+      return `- ${fields}`;
     });
-    const edgeList = edgesRef.current.map((edge, index) => `${index + 1}. ${edge.source} -> ${edge.target}`);
-    return `${list.length ? list.join("\n") : "画布当前没有节点。"}\n\n连接关系：\n${edgeList.length ? edgeList.join("\n") : "暂无连接。"}`;
+    return `画布节点(后续工具用 id 作为 nodeId/sourceNodeId/targetNodeId 引用):\n${lines.join("\n")}`;
   }, []);
 
   const pollTask = useCallback((nodeId: string, taskId: string, attempt = 0) => {
@@ -1791,6 +1813,7 @@ function WorkflowCanvas() {
     }]);
     if (sourceId) fanOutGroupConnection(sourceId, id);
     setMenu(undefined);
+    return id;
   }, [fanOutGroupConnection, generate, markUnsaved, reactFlow, remove, setNodes, update, uploadCanvasFile]);
 
   const addLibraryItemToCanvas = useCallback((item: MaterialLibraryItem) => {
@@ -2196,6 +2219,86 @@ function WorkflowCanvas() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  const undoAgentActions = useCallback(() => {
+    const snap = agentSnapshotRef.current;
+    if (!snap) return;
+    agentSnapshotRef.current = null;
+    setAgentCanUndo(false);
+    markUnsaved();
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelectedIds([]);
+  }, [markUnsaved, setEdges, setNodes]);
+
+  const dispatchAgentToolCalls = useCallback(async (toolCalls: AgentToolCall[]): Promise<string[]> => {
+    const log: string[] = [];
+    const validNodeId = (id: unknown): string | null => {
+      if (typeof id !== "string" || !id) return null;
+      return nodesRef.current.some((n) => n.id === id) ? id : null;
+    };
+    for (const call of toolCalls) {
+      const fn = call.function;
+      const name = fn?.name;
+      if (!name || !AGENT_TOOL_NAMES.has(name)) {
+        log.push(`忽略未知工具:${name ?? "(空)"}`);
+        continue;
+      }
+      if (call.id && executedToolCallIdsRef.current.has(call.id)) {
+        log.push(`跳过重复调用(${name})`);
+        continue;
+      }
+      if (call.id) executedToolCallIdsRef.current.add(call.id);
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(fn?.arguments || "{}");
+      } catch {
+        log.push(`${name} 失败:参数不是合法 JSON`);
+        continue;
+      }
+      try {
+        if (name === "addNode") {
+          const type = ["text", "image", "video"].includes(args.type as string) ? (args.type as Kind) : null;
+          if (!type) { log.push("addNode 失败:type 必须是 text/image/video"); continue; }
+          const pos = args.position as { x?: number; y?: number } | undefined;
+          const position = pos && typeof pos.x === "number" && typeof pos.y === "number" ? { x: pos.x, y: pos.y } : undefined;
+          const newId = await addNode(type, position);
+          if (!newId) { log.push("addNode 失败:未能创建节点"); continue; }
+          if (typeof args.prompt === "string" && args.prompt.trim()) update(newId, { prompt: args.prompt });
+          log.push(`新增${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
+        } else if (name === "updateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("updateNode 跳过:节点不存在"); continue; }
+          const patchSrc = args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
+          const patch: Partial<WorkData> = {};
+          if (typeof patchSrc.prompt === "string") patch.prompt = patchSrc.prompt;
+          if (typeof patchSrc.title === "string") patch.title = patchSrc.title;
+          if (typeof patchSrc.ratio === "string" && RATIOS.includes(patchSrc.ratio as Ratio)) patch.ratio = patchSrc.ratio as Ratio;
+          if (Object.keys(patch).length) { update(id, patch); log.push("修改节点"); }
+          else log.push("updateNode 跳过:无有效字段");
+        } else if (name === "removeNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("removeNode 跳过:节点不存在"); continue; }
+          remove(id);
+          log.push("删除节点");
+        } else if (name === "generateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("generateNode 跳过:节点不存在"); continue; }
+          generate(id);
+          log.push("触发生成");
+        } else if (name === "addEdge") {
+          const from = validNodeId(args.sourceNodeId);
+          const to = validNodeId(args.targetNodeId);
+          if (!from || !to) { log.push("addEdge 跳过:节点不存在"); continue; }
+          setEdges((current) => addEdge({ id: `${from}-${to}-${randomUuid()}`, source: from, target: to, animated: true }, current));
+          log.push("连接节点");
+        }
+      } catch (err) {
+        log.push(`${name} 失败:${err instanceof Error ? err.message : "未知错误"}`);
+      }
+    }
+    return log;
+  }, [addNode, generate, remove, setEdges, update]);
+
   const sendAgent = useCallback(async () => {
     const content = agentInput.trim();
     if (!content || agentBusy) return;
@@ -2216,7 +2319,7 @@ function WorkflowCanvas() {
         ? attachments.map((item, index) => `${index + 1}. ${item.kind === "image" ? "图片" : "视频"}附件：${item.name}`).join("\n")
         : "无";
       const textPart = [
-        "你是 Genora Agent。请读取当前画布摘要、对话附件和历史上下文，回答最后一个用户问题。",
+        "你是 Genora Agent,运行在画布旁。除了回答问题,你还可以调用工具直接操纵画布:addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时,请调用对应工具,并用一句话说明你做了什么。",
         "",
         "【画布内容】",
         canvasSummary(),
@@ -2236,18 +2339,28 @@ function WorkflowCanvas() {
         body: JSON.stringify({
           model: "agnes-2.0-flash",
           prompt: textPart,
+          tools: AGENT_CANVAS_TOOLS,
           messages: [{ role: "user", content: [{ type: "text", text: textPart }, ...imageParts] }],
         }),
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
-      setAgentMessages((current) => [...current, { role: "assistant", content: body.text ?? "我已经收到。" }]);
+      const toolCalls = Array.isArray(body.tool_calls) ? (body.tool_calls as AgentToolCall[]) : [];
+      let actionLog: string[] = [];
+      if (toolCalls.length) {
+        agentSnapshotRef.current = { nodes: [...nodesRef.current], edges: [...edgesRef.current] };
+        setAgentCanUndo(true);
+        actionLog = await dispatchAgentToolCalls(toolCalls);
+      }
+      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "已完成画布操作。" : "我已经收到。");
+      const footer = actionLog.length ? `\n\n[操作] ${actionLog.join("；")}` : "";
+      setAgentMessages((current) => [...current, { role: "assistant", content: baseText + footer }]);
     } catch (error) {
       setAgentMessages((current) => [...current, { role: "assistant", content: error instanceof Error ? localizeError(error.message) : "Agent 调用失败", error: true }]);
     } finally {
       setAgentBusy(false);
     }
-  }, [agentBusy, agentInput, canvasSummary]);
+  }, [agentBusy, agentInput, canvasSummary, dispatchAgentToolCalls]);
 
   const resetAgent = useCallback(() => {
     setAgentInput("");
@@ -2534,7 +2647,7 @@ function WorkflowCanvas() {
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
       {agentOpen && (
         <aside className={`agent-panel ${agentHasConversation ? "chatting" : ""}`}>
-          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button><button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
+          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button>{agentCanUndo && <button aria-label="撤销 Agent 操作" title="撤销 Agent 操作" onClick={undoAgentActions}><Icon name="history" /></button>}<button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
           {!agentHasConversation && (
             <section className="agent-hero">
               <p className="agent-hi"><img src="/assets/genora-logo.png" alt="" />Hi! {TEMP_USER_NAME}</p>
