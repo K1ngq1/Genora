@@ -11,8 +11,8 @@ This file is intentionally written mostly in English to reduce encoding issues o
 When instructions conflict, follow this order:
 
 1. The user's latest explicit instruction
-2. More specific instructions in subdirectories
-3. This project-level `AGENTS.md`
+2. This project-level `AGENTS.md`
+3. More specific instructions in subdirectories
 4. Existing code conventions
 5. Default Codex behavior
 
@@ -121,7 +121,7 @@ Mention possible risks to UI, API, task status, storage, or data.
 List commands or manual checks.
 ```
 
-If the user asks to proceed directly, keep the plan very short and proceed.
+If the user says "directly implement" or "直接改", keep the plan very short and proceed.
 
 ---
 

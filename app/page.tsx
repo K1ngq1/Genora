@@ -16,7 +16,7 @@ import {
   type HomeMode,
 } from "@/features/home/home-options";
 import { fileToDataUrl, readJson, type PublicTaskResponse } from "@/features/home/home-api";
-import { GenoraMark, Icon } from "@/features/home/home-icons";
+import { Icon } from "@/features/home/home-icons";
 import { HomeSidebar } from "@/features/home/home-sidebar";
 import { HomeStage } from "@/features/home/home-stage";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";

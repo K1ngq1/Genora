@@ -42,7 +42,7 @@ export async function POST(request: Request) {
       resolution: String(body.quality ?? body.resolution ?? model.defaultResolution),
       duration: 0,
     });
-    const actualQuality = normalized.resolution === "adaptive" ? "1k" : normalizeImageQuality(normalized.resolution);
+    const actualQuality = normalizeImageQuality(normalized.resolution);
     const qualityFallbacks = imageQualityFallbacks(actualQuality);
     const finalSize = getImageSize(normalized.ratio, actualQuality);
     const sourceUrls = Array.isArray(body.referenceUrls) ? body.referenceUrls.map(String).filter(Boolean) : [];
