@@ -293,13 +293,21 @@ function HomePageContent() {
             <div className="home-composer-footer">
               <div className="home-footer-controls">
                 <div className="home-model-picker">
-                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}><Icon name="box" />{selectedModel.label}</button>
+                  <button className="home-model-trigger" type="button" onClick={() => setModelMenuOpen((current) => !current)} aria-expanded={modelMenuOpen}>
+                    <span className="home-model-logo"><Icon name="box" /></span>
+                    <span className="home-model-trigger-copy">{selectedModel.label}</span>
+                    <Icon name="chevron-down" />
+                  </button>
                   {modelMenuOpen && (
                     <div className="home-model-menu">
                       {currentModels.map((model) => (
                         <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
-                          <span>{model.label}</span>
-                          <small>{model.free ? "Free" : model.provider}</small>
+                          <span className="home-model-logo"><Icon name="box" /></span>
+                          <span className="home-model-copy">
+                            <b>{model.label}</b>
+                            <small>{model.free ? "Free" : model.provider}</small>
+                          </span>
+                          <em>{model.kind === "image" ? "图像" : "视频"}</em>
                         </button>
                       ))}
                     </div>
