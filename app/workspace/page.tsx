@@ -612,8 +612,9 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
         <div className="prompt-pop nodrag" onMouseDown={(event) => event.stopPropagation()}>
           {(data.kind === "image" || data.kind === "video") && (
             <div className="frame-strip">
-              <span className="prompt-tool-square" onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
+              <span className={`prompt-tool-square ${data.kind === "video" ? "motion-trigger-pill" : ""}`} onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
                 <Icon name="camera" />
+                {data.kind === "video" && <b>{MOTION_PRESETS.find((motion) => motion.id === (data.motionPreset ?? "auto"))?.label ?? "自动镜头"}</b>}
               </span>
               {motionOpen && (
                 <div className="motion-popover glass">

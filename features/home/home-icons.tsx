@@ -12,6 +12,7 @@ export type IconName =
   | "upload"
   | "spark"
   | "send"
+  | "plus"
   | "box"
   | "chevron-down"
   | "chevron-left"
@@ -57,6 +58,7 @@ export function Icon({ name }: { name: IconName }) {
     upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
     spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
     send: <path d="m22 2-7 20-4-9-9-4Z" />,
+    plus: <path d="M12 5v14M5 12h14" />,
     box: (
       <>
         <path d="m12 3 7 4v8l-7 4-7-4V7Z" />
