@@ -466,3 +466,244 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
     transform:none!important;
   }
 }
+
+/* Unified canvas capsule controls. */
+.canvas-node.image,.canvas-node.video{
+  --canvas-pill-height:42px;
+  --canvas-pill-bg:#ffffff10;
+  --canvas-pill-bg-hover:#ffffff18;
+  --canvas-pill-bg-active:#ffffff20;
+  --canvas-pill-border:#ffffff1f;
+  --canvas-pill-border-hover:#ffffff38;
+  --canvas-pill-text:#ffffffe0;
+}
+.canvas-node.image .node-upload,.canvas-node.video .node-upload,
+.canvas-node.image .prompt-toolbar .model-trigger.model-trigger-logo,
+.canvas-node.video .prompt-toolbar .model-trigger.model-trigger-logo,
+.canvas-node.image .prompt-toolbar .settings-trigger,
+.canvas-node.video .prompt-toolbar .settings-trigger,
+.canvas-node.video .prompt-toolbar .negative-prompt-trigger,
+.canvas-node.image .prompt-toolbar>span,
+.canvas-node.video .prompt-toolbar>span,
+.canvas-node.image .generate-button-submit,
+.canvas-node.video .generate-button-submit{
+  display:flex!important;
+  align-items:center!important;
+  justify-content:center!important;
+  gap:8px!important;
+  height:var(--canvas-pill-height)!important;
+  min-height:var(--canvas-pill-height)!important;
+  border:1px solid var(--canvas-pill-border)!important;
+  border-radius:999px!important;
+  padding:0 14px!important;
+  background:var(--canvas-pill-bg)!important;
+  color:var(--canvas-pill-text)!important;
+  font-size:13px!important;
+  font-weight:500!important;
+  line-height:1!important;
+  box-shadow:inset 0 1px #ffffff14,0 8px 22px #0004!important;
+  backdrop-filter:blur(18px) saturate(105%);
+  transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease!important;
+}
+.canvas-node.image .node-upload:hover,.canvas-node.video .node-upload:hover,
+.canvas-node.image .prompt-toolbar .model-trigger.model-trigger-logo:hover,
+.canvas-node.video .prompt-toolbar .model-trigger.model-trigger-logo:hover,
+.canvas-node.image .prompt-toolbar .settings-trigger:hover,
+.canvas-node.video .prompt-toolbar .settings-trigger:hover,
+.canvas-node.video .prompt-toolbar .negative-prompt-trigger:hover,
+.canvas-node.image .generate-button-submit:hover,
+.canvas-node.video .generate-button-submit:hover{
+  border-color:var(--canvas-pill-border-hover)!important;
+  background:var(--canvas-pill-bg-hover)!important;
+  color:#fff!important;
+  transform:translateY(-1px)!important;
+  box-shadow:inset 0 1px #ffffff24,0 10px 26px #0006!important;
+}
+.canvas-node.image .node-upload:active,.canvas-node.video .node-upload:active,
+.canvas-node.image .prompt-toolbar button:active,
+.canvas-node.video .prompt-toolbar button:active,
+.canvas-node.image .prompt-tool-square:active,
+.canvas-node.video .prompt-tool-square:active,
+.canvas-node.image .frame-add:active,
+.canvas-node.video .frame-add:active,
+.canvas-node.image .generate-button-submit:active,
+.canvas-node.video .generate-button-submit:active{
+  transform:translateY(0) scale(.98)!important;
+}
+.canvas-node.image .model-picker.open .model-trigger,
+.canvas-node.video .model-picker.open .model-trigger,
+.canvas-node.image .settings-details.open .settings-trigger,
+.canvas-node.video .settings-details.open .settings-trigger,
+.canvas-node.video .negative-prompt-details.open .negative-prompt-trigger{
+  border-color:#ffffff42!important;
+  background:var(--canvas-pill-bg-active)!important;
+  color:#fff!important;
+  box-shadow:inset 0 1px #ffffff28,0 10px 28px #0006!important;
+}
+.canvas-node.image .node-upload,.canvas-node.video .node-upload{
+  top:-58px!important;
+  opacity:0;
+  padding:0 15px!important;
+}
+.canvas-node.image:hover .node-upload,.canvas-node.video:hover .node-upload{
+  opacity:1;
+  transform:translate(-50%,0)!important;
+}
+.canvas-node.image .node-upload svg,.canvas-node.video .node-upload svg,
+.canvas-node.image .prompt-toolbar svg,.canvas-node.video .prompt-toolbar svg,
+.canvas-node.image .prompt-tool-square svg,.canvas-node.video .prompt-tool-square svg,
+.canvas-node.image .frame-add svg,.canvas-node.video .frame-add svg{
+  width:16px!important;
+  height:16px!important;
+  flex:0 0 auto;
+}
+.canvas-node.video .motion-trigger-pill{
+  display:flex!important;
+  width:auto!important;
+  min-width:136px!important;
+  max-width:188px!important;
+  padding:0 13px!important;
+  border-radius:999px!important;
+}
+.canvas-node.video .motion-trigger-pill b{
+  display:block;
+  overflow:hidden;
+  color:#ffffffe8;
+  font-size:13px;
+  font-weight:500;
+  line-height:1;
+  text-overflow:ellipsis;
+  white-space:nowrap;
+}
+.canvas-node.image .prompt-tool-square:not(.motion-trigger-pill),
+.canvas-node.image .frame-add,
+.canvas-node.video .frame-add,
+.canvas-node.image .frame-slot .frame-chip,
+.canvas-node.video .frame-slot .frame-chip,
+.canvas-node.image .frame-chip-wrap .frame-chip,
+.canvas-node.video .frame-chip-wrap .frame-chip{
+  border-color:var(--canvas-pill-border)!important;
+  background:var(--canvas-pill-bg)!important;
+  color:var(--canvas-pill-text)!important;
+  box-shadow:inset 0 1px #ffffff14,0 8px 22px #0004!important;
+}
+.canvas-node.image .prompt-tool-square:not(.motion-trigger-pill):hover,
+.canvas-node.image .frame-add:hover,
+.canvas-node.video .frame-add:hover,
+.canvas-node.image .frame-slot .frame-chip:hover,
+.canvas-node.video .frame-slot .frame-chip:hover,
+.canvas-node.image .frame-chip-wrap .frame-chip:hover,
+.canvas-node.video .frame-chip-wrap .frame-chip:hover{
+  border-color:var(--canvas-pill-border-hover)!important;
+  background:var(--canvas-pill-bg-hover)!important;
+  color:#fff!important;
+  transform:translateY(-1px)!important;
+}
+.canvas-node.image .model-menu,.canvas-node.video .model-menu,
+.canvas-node.image .node-options,.canvas-node.video .node-options,
+.canvas-node.video .motion-popover{
+  z-index:120!important;
+  border:1px solid #ffffff22!important;
+  border-radius:20px!important;
+  background:linear-gradient(145deg,#303033e8,#18181cf4)!important;
+  box-shadow:inset 0 1px #ffffff18,0 22px 64px #000c!important;
+  backdrop-filter:blur(28px) saturate(95%)!important;
+}
+.canvas-node.image .model-menu>button,.canvas-node.video .model-menu>button,
+.canvas-node.video .motion-options button,
+.canvas-node.image .node-options .quality-options button,
+.canvas-node.image .node-options .ratio-options button,
+.canvas-node.video .video-mode-options button,
+.canvas-node.video .duration-options button,
+.canvas-node.video .quality-options button,
+.canvas-node.video .video-ratio-options button{
+  border:1px solid transparent!important;
+  border-radius:12px!important;
+  color:#ffffffb8!important;
+  font-size:13px!important;
+  font-weight:500!important;
+  transition:background-color .16s ease,border-color .16s ease,color .16s ease,box-shadow .16s ease,transform .16s ease!important;
+}
+.canvas-node.image .model-menu>button:not(:disabled):hover,.canvas-node.video .model-menu>button:not(:disabled):hover,
+.canvas-node.video .motion-options button:not(:disabled):hover,
+.canvas-node.image .node-options .quality-options button:not(:disabled):hover,
+.canvas-node.image .node-options .ratio-options button:not(:disabled):hover,
+.canvas-node.video .video-mode-options button:not(:disabled):hover,
+.canvas-node.video .duration-options button:not(:disabled):hover,
+.canvas-node.video .quality-options button:not(:disabled):hover,
+.canvas-node.video .video-ratio-options button:not(:disabled):hover{
+  border-color:#ffffff22!important;
+  background:#ffffff14!important;
+  color:#fff!important;
+  transform:translateY(-1px)!important;
+}
+.canvas-node.image .model-menu>button.selected,.canvas-node.video .model-menu>button.selected,
+.canvas-node.video .motion-options button.selected,
+.canvas-node.image .node-options .quality-options button.selected,
+.canvas-node.image .node-options .ratio-options button.selected,
+.canvas-node.video .video-mode-options button.selected,
+.canvas-node.video .duration-options button.selected,
+.canvas-node.video .quality-options button.selected,
+.canvas-node.video .video-ratio-options button.selected{
+  border-color:#ffffff3d!important;
+  background:#ffffff1d!important;
+  color:#fff!important;
+  box-shadow:inset 0 1px #ffffff22,0 8px 24px #0005!important;
+}
+.canvas-node.image .model-trigger.model-trigger-logo span,
+.canvas-node.video .model-trigger.model-trigger-logo span,
+.canvas-node.image .settings-trigger span,
+.canvas-node.video .settings-trigger span{
+  font-size:13px!important;
+  font-weight:500!important;
+}
+.canvas-node.image .model-trigger.model-trigger-logo,
+.canvas-node.video .model-trigger.model-trigger-logo{
+  max-width:min(240px,42vw)!important;
+  min-width:0!important;
+}
+.canvas-node.image .model-trigger.model-trigger-logo>span,
+.canvas-node.video .model-trigger.model-trigger-logo>span{
+  min-width:0!important;
+  overflow:hidden!important;
+  text-overflow:ellipsis!important;
+  white-space:nowrap!important;
+}
+.canvas-node.image .generate-button-submit .generation-cost,
+.canvas-node.video .generate-button-submit .generation-cost{
+  font-size:13px!important;
+  font-weight:500!important;
+}
+.canvas-node.image .generate-button-submit .submit-arrow,
+.canvas-node.video .generate-button-submit .submit-arrow{
+  width:32px!important;
+  height:32px!important;
+  flex:0 0 auto;
+  background:#ffffffd8!important;
+  transition:transform .16s ease,background-color .16s ease,color .16s ease!important;
+}
+.canvas-node.image .generate-button-submit:hover .submit-arrow,
+.canvas-node.video .generate-button-submit:hover .submit-arrow{
+  transform:scale(1.04);
+}
+@media(max-width:760px){
+  .canvas-node.image .prompt-toolbar,.canvas-node.video .prompt-toolbar{gap:7px!important}
+  .canvas-node.video .motion-trigger-pill{flex:1 1 auto;min-width:132px!important}
+  .canvas-node.image .model-trigger.model-trigger-logo,.canvas-node.video .model-trigger.model-trigger-logo{max-width:100%!important}
+}
+@media (prefers-reduced-motion: reduce){
+  .canvas-node.image .node-upload,.canvas-node.video .node-upload,
+  .canvas-node.image .prompt-toolbar button,.canvas-node.video .prompt-toolbar button,
+  .canvas-node.image .prompt-tool-square,.canvas-node.video .prompt-tool-square,
+  .canvas-node.image .frame-add,.canvas-node.video .frame-add,
+  .canvas-node.image .frame-slot .frame-chip,.canvas-node.video .frame-slot .frame-chip,
+  .canvas-node.image .frame-chip-wrap .frame-chip,.canvas-node.video .frame-chip-wrap .frame-chip,
+  .canvas-node.image .model-menu>button,.canvas-node.video .model-menu>button,
+  .canvas-node.video .motion-options button,
+  .canvas-node.image .node-options button,.canvas-node.video .node-options button,
+  .canvas-node.image .generate-button-submit,.canvas-node.video .generate-button-submit,
+  .canvas-node.image .generate-button-submit .submit-arrow,.canvas-node.video .generate-button-submit .submit-arrow{
+    transition:none!important;
+    transform:none!important;
+  }
+}

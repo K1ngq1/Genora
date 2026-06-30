@@ -10,9 +10,11 @@ const workflowCss = await readFile("app/workflow.css", "utf8");
 const homeSurface = `${home}\n${homeSidebar}\n${homeStage}\n${homeTaskCard}`;
 
 const modelPickerIndex = home.indexOf("home-model-picker");
-const ratioIndex = home.indexOf("home-ratio-select");
-const resolutionIndex = home.indexOf("home-resolution-select");
-const settingsIndex = homeSurface.indexOf('href="/settings"');
+const ratioIndex = home.indexOf("home-ratio-picker");
+const resolutionIndex = home.indexOf("home-resolution-picker");
+const motionIndex = home.indexOf("home-motion-picker");
+const uploadIndex = home.indexOf("home-upload-strip");
+const accountIndex = homeSurface.indexOf("home-user-button");
 const bottomIndex = homeSurface.indexOf("home-sidebar-bottom");
 
 const checks = [
@@ -26,10 +28,10 @@ const checks = [
   ["black glass genora mark", homeSurface.includes("GenoraMark") && css.includes(".genora-mark") && css.includes("grayscale(1)")],
   ["sidebar home link", homeSurface.includes('href="/"') && homeSurface.includes("??")],
   ["database link removed", !homeSurface.includes('href="/database"')],
-  ["settings moved to bottom", settingsIndex > bottomIndex && bottomIndex > -1],
+  ["account moved to bottom", accountIndex > bottomIndex && bottomIndex > -1],
   ["collapse arrow button", homeSurface.includes("chevron-right") && homeSurface.includes("chevron-left") && css.includes(".home-collapse svg{width:16px;height:16px")],
   ["sidebar workspace link", homeSurface.includes('href="/projects"') && homeSurface.includes('name="nodes"')],
-  ["sidebar symbolic icons", homeSurface.includes('name="home"') && homeSurface.includes('name="settings"') && homeSurface.includes('name="nodes"')],
+  ["sidebar symbolic icons", homeSurface.includes('name="home"') && homeSurface.includes('name="user"') && homeSurface.includes('name="nodes"')],
   ["mouse reactive dot grid", home.includes("updateGridGlow") && home.includes("--grid-x") && css.includes(".home-grid:after")],
   ["no top header nav", !home.includes("home-header") && !home.includes("home-actions")],
   ["no featured recommendations", !home.includes("精选推荐") && !home.includes("featured-grid")],
@@ -43,9 +45,13 @@ const checks = [
   ["model picker in composer footer", home.includes("home-model-picker") && home.includes("modelMenuOpen")],
   ["ratio placed after model picker", modelPickerIndex > -1 && ratioIndex > modelPickerIndex],
   ["resolution placed after ratio", ratioIndex > -1 && resolutionIndex > ratioIndex],
+  ["native composer selects removed", !home.includes("<select") && !home.includes("home-ratio-select") && !home.includes("home-resolution-select")],
+  ["capsule ratio picker", home.includes("home-ratio-picker") && home.includes("home-ratio-menu") && css.includes(".home-capsule-menu")],
+  ["capsule resolution picker", home.includes("home-resolution-picker") && home.includes("home-resolution-menu")],
   ["footer controls group", home.includes("home-footer-controls") && css.includes(".home-footer-controls")],
   ["model catalog reuse", home.includes("@/features/home/home-options") && homeOptions.includes("modelsForKind") && homeOptions.includes("MODEL_CATALOG")],
-  ["motion direction options", home.includes("MOTION_PRESETS") && home.includes("home-video-options")],
+  ["motion direction options", home.includes("MOTION_PRESETS") && home.includes("home-motion-menu")],
+  ["motion direction before upload", motionIndex > -1 && uploadIndex > -1 && motionIndex < uploadIndex],
   ["upload image file retained", home.includes("imageFile") && home.includes("setImageFile")],
   ["real image generation API", home.includes('/api/images/generate') && !home.includes('/api/agent/generate')],
   ["real video generation API", home.includes('/api/videos/generate') && home.includes("new FormData()")],
