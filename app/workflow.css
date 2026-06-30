@@ -467,6 +467,24 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
   }
 }
 
+.canvas-node.storyboard{width:720px;min-height:250px;border-radius:24px;background:linear-gradient(145deg,#242428e8,#121216f4);border:1px solid #ffffff20;box-shadow:inset 0 1px #ffffff14,0 24px 72px #000d}
+.storyboard-node-table{padding:18px;color:#ffffffe8}
+.storyboard-node-table header{display:flex;align-items:center;justify-content:space-between;margin-bottom:12px}
+.storyboard-node-table header b{font-size:15px;font-weight:400}.storyboard-node-table header small{color:#ffffff75;font-size:12px}
+.storyboard-table-head,.storyboard-table-row{display:grid;grid-template-columns:56px 1.15fr 1fr 64px 1.5fr;gap:8px;align-items:stretch}
+.storyboard-table-head{padding:0 4px 7px;color:#ffffff78;font-size:12px}
+.storyboard-table-body{display:flex;max-height:360px;flex-direction:column;gap:7px;overflow:auto;padding-right:2px}
+.storyboard-table-row{cursor:grab;border:1px solid #ffffff14;border-radius:14px;padding:7px;background:#ffffff0b;box-shadow:inset 0 1px #ffffff0c;transition:background-color .16s ease,border-color .16s ease,transform .16s ease,box-shadow .16s ease}
+.storyboard-table-row:hover{border-color:#ffffff2a;background:#ffffff12;box-shadow:inset 0 1px #ffffff18,0 8px 24px #0005;transform:translateY(-1px)}
+.storyboard-table-row:active{cursor:grabbing;transform:scale(.995)}
+.storyboard-table-row input,.storyboard-table-row textarea{width:100%;min-width:0;border:0;border-radius:10px;padding:8px;background:#0000002b;color:#ffffffe8;font:inherit;font-size:12px;line-height:1.35;outline:0;resize:none}
+.storyboard-table-row textarea{min-height:58px}.storyboard-table-row input:focus,.storyboard-table-row textarea:focus{background:#ffffff10;box-shadow:0 0 0 1px #ffffff24}
+.storyboard-node-table p{margin:10px 2px 0;color:#ffffff76;font-size:12px;line-height:1.5}
+.storyboard-trigger{display:flex;align-items:center;gap:7px;height:42px;border:1px solid #ffffff1f;border-radius:999px;padding:0 13px;background:#ffffff10;color:#ffffffe0;font-size:13px;font-weight:400;box-shadow:inset 0 1px #ffffff14}
+.storyboard-trigger svg{width:15px;height:15px}.storyboard-trigger:hover{border-color:#ffffff34;background:#ffffff18;color:#fff}.storyboard-trigger:disabled{cursor:not-allowed;opacity:.55}
+@media(max-width:760px){
+  .canvas-node.storyboard{width:min(680px,calc(100vw - 24px))}
+  .storyboard-table-head,.storyboard-table-row{grid-template-columns:48px 1fr 1fr 58px 1.1fr}
 /* Unified canvas capsule controls. */
 .canvas-node.image,.canvas-node.video{
   --canvas-pill-height:42px;

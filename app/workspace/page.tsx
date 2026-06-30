@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -45,11 +45,19 @@ import {
 import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
 import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
 
-type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
+type Kind = "text" | "image" | "video" | "storyboard" | "media-image" | "media-video" | "group";
 type Ratio = CanvasRatio;
 type Quality = CanvasResolution;
 type MotionPreset = "auto" | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "orbit-left" | "orbit-right" | "low-angle" | "top-down";
 type ThemeTone = "dark" | "light";
+type StoryboardShot = {
+  id: string;
+  shotNumber: string;
+  visual: string;
+  cameraMotion: string;
+  duration: number;
+  videoPrompt: string;
+};
 type IconName =
   | "text"
   | "image"
@@ -106,6 +114,9 @@ type WorkData = {
   endFrameName?: string;
   referenceFrameUrls?: string[];
   referenceFrameNames?: string[];
+  storyboardShots?: StoryboardShot[];
+  sourceStoryboardShotId?: string;
+  storyboardGenerating?: boolean;
   result?: string;
   taskId?: string;
   busy?: boolean;
@@ -119,6 +130,7 @@ type WorkData = {
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
+  generateStoryboard: (id: string) => void;
 };
 
 type WorkNode = Node<WorkData, "work">;
@@ -280,6 +292,7 @@ const KIND_META: Record<Kind, { title: string; subtitle: string; icon: IconName 
   text: { title: "文本", subtitle: "GPT-5.5", icon: "text" },
   image: { title: "图像", subtitle: "Agnes Image 2.1 Flash", icon: "image" },
   video: { title: "视频", subtitle: "Agnes Video V2.0", icon: "video" },
+  storyboard: { title: "\u5206\u955c\u8868\u683c", subtitle: "\u955c\u5934\u7ed3\u6784", icon: "grid" },
   "media-image": { title: "图片素材", subtitle: "本地输入", icon: "image" },
   "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
   group: { title: "节点组", subtitle: "容器", icon: "grid" },
@@ -668,6 +681,60 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     );
   }
 
+  if (data.kind === "storyboard") {
+    const storyboardShots = data.storyboardShots ?? [];
+    const updateShot = (shotId: string, patch: Partial<StoryboardShot>) => {
+      data.update(id, {
+        storyboardShots: storyboardShots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
+      });
+    };
+    const startShotDrag = (event: DragEvent<HTMLDivElement>, shot: StoryboardShot) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-genora-storyboard-shot", JSON.stringify({ sourceNodeId: id, shot }));
+      event.dataTransfer.setData("text/plain", shot.videoPrompt);
+    };
+    return (
+      <article className={`canvas-node glass storyboard ${data.selectionSuppressed ? "selection-suppressed" : ""}`}>
+        <Handle type="target" position={Position.Left} className="port left" />
+        <div className="node-badge">
+          <span>
+            <Icon name={meta.icon} />
+            {data.title}
+          </span>
+          <button aria-label="删除节点" onClick={() => data.remove(id)}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="storyboard-node-table nodrag">
+          <header>
+            <b>分镜表格</b>
+            <small>{storyboardShots.length} shots</small>
+          </header>
+          <div className="storyboard-table-head">
+            <span>镜号</span>
+            <span>画面描述</span>
+            <span>镜头运动</span>
+            <span>时长</span>
+            <span>视频提示词</span>
+          </div>
+          <div className="storyboard-table-body">
+            {storyboardShots.map((shot) => (
+              <div className="storyboard-table-row" key={shot.id} draggable onDragStart={(event) => startShotDrag(event, shot)}>
+                <input value={shot.shotNumber} onChange={(event) => updateShot(shot.id, { shotNumber: event.target.value })} />
+                <textarea value={shot.visual} onChange={(event) => updateShot(shot.id, { visual: event.target.value })} />
+                <textarea value={shot.cameraMotion} onChange={(event) => updateShot(shot.id, { cameraMotion: event.target.value })} />
+                <input type="number" min="1" max="20" value={shot.duration} onChange={(event) => updateShot(shot.id, { duration: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
+                <textarea value={shot.videoPrompt} onChange={(event) => updateShot(shot.id, { videoPrompt: event.target.value })} />
+              </div>
+            ))}
+          </div>
+          <p>拖拽任一分镜行到画布，可创建已连接的视频节点。</p>
+        </div>
+        <Handle type="source" position={Position.Right} className="port right" />
+      </article>
+    );
+  }
+
   return (
     <article
       className={`canvas-node glass ${data.kind} ${textLengthClass} ${data.url ? "has-media" : ""} ${data.selectionSuppressed ? "selection-suppressed" : ""}`}
@@ -842,6 +909,17 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             placeholder="填写提示词，描述你想生成的内容..."
           />
           <div className="prompt-toolbar">
+            {data.kind === "text" && (
+              <button
+                type="button"
+                className="storyboard-trigger"
+                disabled={data.storyboardGenerating}
+                onClick={(event) => { event.stopPropagation(); data.generateStoryboard(id); }}
+              >
+                <Icon name="grid" />
+                {data.storyboardGenerating ? "生成中" : "分镜"}
+              </button>
+            )}
             {selectedModel && (
               <div className={`model-picker ${modelOpen ? "open" : ""}`}>
                 <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
@@ -987,6 +1065,9 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.endFrameName === b.endFrameName &&
     a.referenceFrameUrls === b.referenceFrameUrls &&
     a.referenceFrameNames === b.referenceFrameNames &&
+    a.storyboardShots === b.storyboardShots &&
+    a.sourceStoryboardShotId === b.sourceStoryboardShotId &&
+    a.storyboardGenerating === b.storyboardGenerating &&
     a.result === b.result &&
     a.taskId === b.taskId &&
     a.busy === b.busy &&
@@ -1096,6 +1177,7 @@ function WorkflowCanvas() {
   const executedToolCallIdsRef = useRef<Set<string>>(new Set());
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
+  const generateStoryboardRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
   const saveProjectRef = useRef<((name?: string) => Promise<boolean>) | undefined>(undefined);
   const imagePicker = useRef<HTMLInputElement>(null);
@@ -1230,7 +1312,7 @@ function WorkflowCanvas() {
       .filter((node) => idSet.has(node.id))
       .map((node) => {
         const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
         ) as StoredWorkData;
         return { ...node, selected: false, data };
       });
@@ -1254,7 +1336,7 @@ function WorkflowCanvas() {
       .filter((node) => idSet.has(node.id))
       .map((node) => {
         const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
         ) as StoredWorkData;
         return { ...node, selected: false, data };
       }) as StoredWorkNode[];
@@ -1311,6 +1393,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
     })) as WorkNode[];
     const pastedEdges = snapshot.edges.map((edge) => ({
@@ -1355,6 +1438,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
       selected: true,
     };
@@ -1656,6 +1740,56 @@ function WorkflowCanvas() {
     generateRef.current = generate;
   }, [generate]);
 
+  const generateStoryboard = useCallback(async (id: string) => {
+    const source = nodesRef.current.find((item) => item.id === id);
+    if (!source || source.data.kind !== "text") return;
+    const text = String(source.data.result || source.data.prompt || "").trim();
+    if (!text) {
+      update(id, { error: "请先填写文本或生成文本结果。" });
+      return;
+    }
+    update(id, { storyboardGenerating: true, error: "" });
+    try {
+      const response = await fetch("/api/storyboards/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const body = await readJson(response) as { storyboardShots?: StoryboardShot[]; error?: string; errorCode?: string };
+      if (!response.ok || !body.storyboardShots?.length) throw new Error(responseError(body, "INVALID_JSON_RESPONSE"));
+      const storyboardId = randomUuid();
+      const position = { x: source.position.x + 420, y: source.position.y };
+      const storyboardNode: WorkNode = {
+        id: storyboardId,
+        type: "work",
+        position,
+        data: {
+          kind: "storyboard",
+          title: KIND_META.storyboard.title,
+          prompt: "",
+          ratio: "16:9",
+          quality: "720p",
+          duration: 0,
+          storyboardShots: body.storyboardShots,
+          uploadAsset: (file) => uploadAssetRef.current(file),
+          update,
+          remove,
+          generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+        },
+      };
+      markUnsaved();
+      setNodes((current) => [...current, storyboardNode]);
+      setEdges((current) => addEdge({ id: `${id}-${storyboardId}-${randomUuid()}`, source: id, target: storyboardId, animated: true }, current));
+      update(id, { storyboardGenerating: false, error: "" });
+    } catch (error) {
+      update(id, { storyboardGenerating: false, error: error instanceof Error ? localizeError(error.message) : "分镜生成失败" });
+    }
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+  useEffect(() => {
+    generateStoryboardRef.current = generateStoryboard;
+  }, [generateStoryboard]);
+
   const uploadCanvasFile = useCallback(async (file: File) => {
     const projectId = projectRef.current?.id;
     if (!projectId) throw new Error("PROJECT_NOT_READY");
@@ -1846,6 +1980,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate,
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
       },
     }]);
     if (sourceId) fanOutGroupConnection(sourceId, id);
@@ -1878,6 +2013,7 @@ function WorkflowCanvas() {
           update,
           remove,
           generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
         },
       })) as WorkNode[];
       const pastedEdges = (item.edges ?? []).map((edge) => ({
@@ -1904,6 +2040,44 @@ function WorkflowCanvas() {
     });
   }, [addNode, markUnsaved, reactFlow, remove, setEdges, setNodes, update]);
 
+  const createVideoFromStoryboardShot = useCallback((sourceNodeId: string, shot: StoryboardShot, position: { x: number; y: number }) => {
+    const source = nodesRef.current.find((node) => node.id === sourceNodeId);
+    if (!source || source.data.kind !== "storyboard") return;
+    const modelId = "kling-v3-omni";
+    const normalized = sanitizeVideoOptionsForModel(modelId, {
+      aspectRatio: "16:9",
+      resolution: "720p",
+      duration: shot.duration,
+    });
+    const id = randomUuid();
+    const videoNode: WorkNode = {
+      id,
+      type: "work",
+      position: { x: position.x - 140, y: position.y - 70 },
+      data: {
+        kind: "video",
+        title: `${KIND_META.video.title} ${shot.shotNumber}`,
+        prompt: shot.videoPrompt,
+        ratio: normalized.aspectRatio,
+        quality: normalized.resolution,
+        model: modelId,
+        videoMode: normalized.mode,
+        motionPreset: "auto",
+        duration: normalized.duration,
+        negativePrompt: "",
+        sourceStoryboardShotId: shot.id,
+        uploadAsset: (file) => uploadAssetRef.current(file),
+        update,
+        remove,
+        generate: (nodeId) => generateRef.current(nodeId),
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+      },
+    };
+    markUnsaved();
+    setNodes((current) => [...current, videoNode]);
+    setEdges((current) => addEdge({ id: `${sourceNodeId}-${id}-${randomUuid()}`, source: sourceNodeId, target: id, animated: true }, current));
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+
   const openMenu = useCallback((x: number, y: number, sourceId?: string) => setMenu({ screen: { x, y }, flow: reactFlow.screenToFlowPosition({ x, y }), sourceId }), [reactFlow]);
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
@@ -1916,12 +2090,24 @@ function WorkflowCanvas() {
   }, [openMenu]);
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    const storyboardPayload = event.dataTransfer.getData("application/x-genora-storyboard-shot");
+    if (storyboardPayload) {
+      try {
+        const parsed = JSON.parse(storyboardPayload) as { sourceNodeId?: string; shot?: StoryboardShot };
+        if (parsed.sourceNodeId && parsed.shot) {
+          createVideoFromStoryboardShot(parsed.sourceNodeId, parsed.shot, reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+        }
+      } catch {
+        setSaveStatus("error");
+      }
+      return;
+    }
     const file = event.dataTransfer.files[0];
     if (!file) return;
     const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     if (file.type.startsWith("image/")) addNode("media-image", position, file);
     if (file.type.startsWith("video/")) addNode("media-video", position, file);
-  }, [addNode, reactFlow]);
+  }, [addNode, createVideoFromStoryboardShot, reactFlow]);
   const onWheel = useCallback((event: React.WheelEvent) => {
     if (!event.ctrlKey) return;
     event.preventDefault();
@@ -1957,7 +2143,7 @@ function WorkflowCanvas() {
   const canvasProjectData = useCallback(() => {
     const storedNodes = nodesRef.current.map((node) => {
       const data = Object.fromEntries(
-        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
       ) as StoredWorkData;
       return {
         ...node,
@@ -2149,6 +2335,7 @@ function WorkflowCanvas() {
             update,
             remove,
             generate,
+            generateStoryboard,
           },
         };
       }) as WorkNode[];
@@ -2192,6 +2379,7 @@ function WorkflowCanvas() {
             update,
             remove,
             generate,
+            generateStoryboard,
           },
         }];
         launchChanged = true;
@@ -2224,7 +2412,7 @@ function WorkflowCanvas() {
 
     loadProject().catch(() => setSaveStatus("error"));
     return () => { cancelled = true; };
-  }, [generate, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
+  }, [generate, generateStoryboard, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
