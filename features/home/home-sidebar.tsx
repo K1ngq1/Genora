@@ -17,6 +17,7 @@ type HomeSidebarProps = {
 export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleCollapsed, onNewChat, onSelectSession }: HomeSidebarProps) {
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
+  const [chatsOpen, setChatsOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const visibleSessions = sessions.slice(0, 12);
   const query = searchQuery.trim().toLowerCase();
@@ -58,9 +59,25 @@ export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleColl
         </div>
         <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
         {collapsed && (
-          <button className="home-chat-bubble" type="button" title="最近聊天" data-label="最近聊天" onClick={onNewChat}>
-            <Icon name="chat" />
-          </button>
+          <div className={`home-chat-anchor ${chatsOpen ? "open" : ""}`}>
+            <button className="home-chat-bubble" type="button" title="最近聊天" data-label="最近聊天" onClick={() => setChatsOpen((current) => !current)}>
+              <Icon name="chat" />
+            </button>
+            {chatsOpen && (
+              <div className="home-chat-popover">
+                <header>最近对话</header>
+                <div className="home-chat-results">
+                  {visibleSessions.length ? visibleSessions.map((session) => (
+                    <button key={session.id} type="button" className={session.id === activeSessionId ? "active" : ""} onClick={() => { onSelectSession(session.id); setChatsOpen(false); }}>
+                      <b>{session.title}</b>
+                      <small>{new Date(session.updatedAt).toLocaleDateString("zh-CN")}</small>
+                    </button>
+                  )) : <span>暂无最近对话</span>}
+                </div>
+                <button className="home-chat-new" type="button" onClick={() => { onNewChat(); setChatsOpen(false); }}><Icon name="plus" />新聊天</button>
+              </div>
+            )}
+          </div>
         )}
       </nav>
       <section className="home-recent-chats" aria-label="最近对话">
