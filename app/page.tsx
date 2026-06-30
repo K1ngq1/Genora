@@ -20,8 +20,37 @@ import { Icon } from "@/features/home/home-icons";
 import { HomeSidebar } from "@/features/home/home-sidebar";
 import { HomeStage } from "@/features/home/home-stage";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
-import type { HomeMessage, HomeTask } from "@/features/home/home-types";
+import type { HomeChatSession, HomeMessage, HomeTask } from "@/features/home/home-types";
 import "./home.css";
+
+const HOME_CHAT_STORAGE_KEY = "genora.home.chatSessions.v1";
+
+function chatTitleFromPrompt(prompt: string) {
+  const cleaned = prompt.replace(/\s+/g, " ").replace(/[，。,.!?！？、；;:：]/g, " ").trim();
+  if (!cleaned) return "新的创作对话";
+  const compact = cleaned.replace(/^(请|帮我|帮|给我|生成|制作|创建|设计|画|写|做)/, "").trim() || cleaned;
+  return compact.length > 16 ? compact.slice(0, 16) : compact;
+}
+
+function readStoredSessions(): HomeChatSession[] {
+  if (typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(HOME_CHAT_STORAGE_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as HomeChatSession[];
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .filter((item) => item && typeof item.id === "string" && Array.isArray(item.messages))
+      .slice(0, 40);
+  } catch {
+    return [];
+  }
+}
+
+function storeSessions(sessions: HomeChatSession[]) {
+  if (typeof window === "undefined") return;
+  window.localStorage.setItem(HOME_CHAT_STORAGE_KEY, JSON.stringify(sessions.slice(0, 40)));
+}
 
 function HomePageContent() {
   const router = useRouter();
@@ -48,6 +77,8 @@ function HomePageContent() {
   const [motionPreset, setMotionPreset] = useState("auto");
   const [imagePreview, setImagePreview] = useState<string>();
   const [imageFile, setImageFile] = useState<File>();
+  const [chatSessions, setChatSessions] = useState<HomeChatSession[]>([]);
+  const [activeSessionId, setActiveSessionId] = useState<string>();
 
   const imageModels = useMemo(() => modelsForKind("image"), []);
   const videoModels = useMemo(() => modelsForKind("video"), []);
@@ -59,6 +90,36 @@ function HomePageContent() {
   const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imageFile) });
   const creditLabel = selectedModel.free ? "Free" : `${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
   const hasGeneration = messages.length > 0;
+
+  const sessionFromMessages = (sessionId: string, nextMessages: HomeMessage[], title?: string, createdAt?: string): HomeChatSession => {
+    const now = new Date().toISOString();
+    return {
+      id: sessionId,
+      title: title ?? chatTitleFromPrompt(nextMessages.find((message) => message.role === "user")?.content ?? prompt),
+      createdAt: createdAt ?? now,
+      updatedAt: now,
+      messages: nextMessages,
+      mode,
+      model: selectedModel.id,
+      aspectRatio: ratio,
+      quality: resolution,
+      duration: mode === "video" ? duration : undefined,
+      motionPreset: mode === "video" ? motionPreset : undefined,
+      outputs: nextMessages.flatMap((message) => message.role === "task" && message.task.outputUrl ? [message.task.outputUrl] : []),
+    };
+  };
+
+  const saveSession = (sessionId: string, nextMessages: HomeMessage[]) => {
+    if (!nextMessages.length) return;
+    setChatSessions((current) => {
+      const existing = current.find((session) => session.id === sessionId);
+      const nextSession = sessionFromMessages(sessionId, nextMessages, existing?.title, existing?.createdAt);
+      const next = [nextSession, ...current.filter((session) => session.id !== sessionId)].slice(0, 40);
+      storeSessions(next);
+      return next;
+    });
+  };
+
 
   useEffect(() => {
     const projectId = searchParams.get("project");
@@ -78,12 +139,62 @@ function HomePageContent() {
     pollTimersRef.current.clear();
   }, []);
 
+  useEffect(() => {
+    setChatSessions(readStoredSessions());
+  }, []);
+
+  useEffect(() => {
+    if (!activeSessionId || !messages.length) return;
+    saveSession(activeSessionId, messages);
+  }, [activeSessionId, messages, mode, selectedModel.id, ratio, resolution, duration, motionPreset]);
+
+
   const selectModel = (model: ModelDefinition) => {
     if (model.kind === "image") setImageModelId(model.id);
     else setVideoModelId(model.id);
     if (!model.ratios.includes(ratio)) setRatio(model.defaultRatio);
     if (!model.resolutions.includes(resolution)) setResolution(model.defaultResolution);
     if (model.kind === "video") setDuration(Math.min(model.maxDuration ?? duration, Math.max(model.minDuration ?? duration, duration)));
+    setModelMenuOpen(false);
+    setRatioMenuOpen(false);
+    setResolutionMenuOpen(false);
+    setMotionMenuOpen(false);
+  };
+
+  const clearImageInput = () => {
+    if (imagePreview) URL.revokeObjectURL(imagePreview);
+    setImagePreview(undefined);
+    setImageFile(undefined);
+    if (imageInputRef.current) imageInputRef.current.value = "";
+  };
+
+  const startNewChat = () => {
+    setActiveSessionId(crypto.randomUUID());
+    setMessages([]);
+    setPrompt("");
+    setGenerationBusy(false);
+    setVoiceError("");
+    clearImageInput();
+    setModelMenuOpen(false);
+    setRatioMenuOpen(false);
+    setResolutionMenuOpen(false);
+    setMotionMenuOpen(false);
+  };
+
+  const selectChatSession = (sessionId: string) => {
+    const session = chatSessions.find((item) => item.id === sessionId);
+    if (!session) return;
+    setActiveSessionId(session.id);
+    setMessages(session.messages);
+    setPrompt("");
+    setMode(session.mode);
+    if (session.mode === "image") setImageModelId(session.model);
+    else setVideoModelId(session.model);
+    setRatio(session.aspectRatio);
+    setResolution(session.quality);
+    setDuration(session.duration ?? 5);
+    setMotionPreset(session.motionPreset ?? "auto");
+    clearImageInput();
     setModelMenuOpen(false);
     setRatioMenuOpen(false);
     setResolutionMenuOpen(false);
@@ -138,8 +249,10 @@ function HomePageContent() {
     const userMessageId = crypto.randomUUID();
     const taskMessageId = crypto.randomUUID();
     const taskModel = selectedModel;
-    setMessages((current) => [
-      ...current,
+    const sessionId = activeSessionId ?? crypto.randomUUID();
+    if (!activeSessionId) setActiveSessionId(sessionId);
+    const nextMessages: HomeMessage[] = [
+      ...messages,
       { id: userMessageId, role: "user", content },
       {
         id: taskMessageId,
@@ -155,7 +268,9 @@ function HomePageContent() {
           duration: mode === "video" ? duration : undefined,
         },
       },
-    ]);
+    ];
+    setMessages(nextMessages);
+    saveSession(sessionId, nextMessages);
     setGenerationBusy(true);
 
     try {
@@ -249,7 +364,14 @@ function HomePageContent() {
 
   return (
     <main className={`home-page ${sidebarCollapsed ? "sidebar-collapsed" : ""} ${hasGeneration ? "has-generation" : ""}`}>
-      <HomeSidebar collapsed={sidebarCollapsed} onToggleCollapsed={() => setSidebarCollapsed((current) => !current)} />
+      <HomeSidebar
+        collapsed={sidebarCollapsed}
+        sessions={chatSessions}
+        activeSessionId={activeSessionId}
+        onToggleCollapsed={() => setSidebarCollapsed((current) => !current)}
+        onNewChat={startNewChat}
+        onSelectSession={selectChatSession}
+      />
 
       <section className="home-main" onPointerMove={updateGridGlow}>
         <div className="home-grid" />

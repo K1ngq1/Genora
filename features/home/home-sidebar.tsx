@@ -3,25 +3,80 @@
 import Link from "next/link";
 import { useState } from "react";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
+import type { HomeChatSession } from "@/features/home/home-types";
 
 type HomeSidebarProps = {
   collapsed: boolean;
+  sessions: HomeChatSession[];
+  activeSessionId?: string;
   onToggleCollapsed: () => void;
+  onNewChat: () => void;
+  onSelectSession: (sessionId: string) => void;
 };
 
-export function HomeSidebar({ collapsed, onToggleCollapsed }: HomeSidebarProps) {
+export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleCollapsed, onNewChat, onSelectSession }: HomeSidebarProps) {
   const [accountOpen, setAccountOpen] = useState(false);
+  const [searchOpen, setSearchOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const visibleSessions = sessions.slice(0, 12);
+  const query = searchQuery.trim().toLowerCase();
+  const searchResults = query
+    ? sessions.filter((session) => {
+      const prompts = session.messages.map((message) => message.role === "user" ? message.content : message.task.prompt).join(" ");
+      return `${session.title} ${prompts}`.toLowerCase().includes(query);
+    }).slice(0, 8)
+    : visibleSessions.slice(0, 6);
+  const handleSelectSession = (sessionId: string) => {
+    onSelectSession(sessionId);
+    setSearchOpen(false);
+  };
 
   return (
     <aside className={`home-sidebar ${collapsed ? "collapsed" : ""}`}>
-      <Link className="home-sidebar-logo logo-button" href="/" aria-label="Genora" title="Genora" data-label="Genora">
+      <button className="home-sidebar-logo logo-button" type="button" aria-label={collapsed ? "展开侧边栏" : "收起侧边栏"} title={collapsed ? "展开" : "收起"} data-label={collapsed ? "展开" : "收起"} onClick={onToggleCollapsed}>
         <GenoraMark />
         <span>Genora</span>
-      </Link>
+      </button>
       <nav aria-label="主导航">
         <Link className="logo-button active" href="/" title="首页" data-label="首页"><Icon name="home" /><span>首页</span></Link>
+        <button className="logo-button home-sidebar-action" type="button" title="新聊天" data-label="新聊天" onClick={onNewChat}><Icon name="plus" /><span>新聊天</span></button>
+        <div className={`home-search-anchor ${searchOpen ? "open" : ""}`}>
+          <button className="logo-button home-sidebar-action" type="button" title="搜索聊天" data-label="搜索聊天" onClick={() => setSearchOpen((current) => !current)}><Icon name="search" /><span>搜索聊天</span></button>
+          {searchOpen && (
+            <div className="home-search-popover">
+              <input value={searchQuery} onChange={(event) => setSearchQuery(event.target.value)} placeholder="搜索聊天" autoFocus />
+              <div className="home-search-results">
+                {searchResults.length ? searchResults.map((session) => (
+                  <button key={session.id} type="button" className={session.id === activeSessionId ? "active" : ""} onClick={() => handleSelectSession(session.id)}>
+                    <b>{session.title}</b>
+                    <small>{new Date(session.updatedAt).toLocaleDateString("zh-CN")}</small>
+                  </button>
+                )) : <span>暂无匹配对话</span>}
+              </div>
+            </div>
+          )}
+        </div>
         <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
+        {collapsed && (
+          <button className="home-chat-bubble" type="button" title="最近聊天" data-label="最近聊天" onClick={onNewChat}>
+            <Icon name="chat" />
+          </button>
+        )}
       </nav>
+      <section className="home-recent-chats" aria-label="最近对话">
+        <header>最近对话</header>
+        {visibleSessions.length ? (
+          <div className="home-recent-list">
+            {visibleSessions.map((session) => (
+              <button key={session.id} type="button" className={session.id === activeSessionId ? "active" : ""} onClick={() => onSelectSession(session.id)} title={session.title}>
+                {session.title}
+              </button>
+            ))}
+          </div>
+        ) : (
+          <p>暂无最近对话</p>
+        )}
+      </section>
       <div className="home-sidebar-bottom">
         <div className={`home-user-anchor ${accountOpen ? "open" : ""}`}>
           <button className="logo-button home-user-button" type="button" title="登录" data-label="登录" onClick={() => setAccountOpen((current) => !current)}>
@@ -44,10 +99,6 @@ export function HomeSidebar({ collapsed, onToggleCollapsed }: HomeSidebarProps) 
             </div>
           )}
         </div>
-        <button className="home-collapse" type="button" onClick={onToggleCollapsed} title={collapsed ? "展开" : "收起"} data-label={collapsed ? "展开" : "收起"}>
-          <Icon name={collapsed ? "chevron-right" : "chevron-left"} />
-          <span>{collapsed ? "展开" : "收起"}</span>
-        </button>
       </div>
     </aside>
   );

@@ -10,6 +10,8 @@ export type IconName =
   | "mic"
   | "image"
   | "upload"
+  | "search"
+  | "chat"
   | "spark"
   | "send"
   | "plus"
@@ -56,6 +58,18 @@ export function Icon({ name }: { name: IconName }) {
       </>
     ),
     upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
+    search: (
+      <>
+        <circle cx="11" cy="11" r="7" />
+        <path d="m20 20-4-4" />
+      </>
+    ),
+    chat: (
+      <>
+        <path d="M5 6.5A3.5 3.5 0 0 1 8.5 3h7A3.5 3.5 0 0 1 19 6.5v5A3.5 3.5 0 0 1 15.5 15H11l-5 4v-4.4A3.5 3.5 0 0 1 5 12Z" />
+        <path d="M9 8h6M9 11h4" />
+      </>
+    ),
     spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
     send: <path d="m22 2-7 20-4-9-9-4Z" />,
     plus: <path d="M12 5v14M5 12h14" />,
