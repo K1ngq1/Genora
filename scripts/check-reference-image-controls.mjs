@@ -4,8 +4,8 @@ const page = await readFile("app/workspace/page.tsx", "utf8");
 const css = await readFile("app/workflow.css", "utf8");
 
 const checks = [
-  ["start frame upload slot", page.includes("data.startFrameUrl") && page.includes('alt="首帧"')],
-  ["end frame upload slot", page.includes("data.endFrameUrl") && page.includes('alt="尾帧"')],
+  ["start frame upload slot", page.includes("data.startFrameUrl") && page.includes("start-frame-slot")],
+  ["end frame upload slot", page.includes("data.endFrameUrl") && page.includes("end-frame-slot")],
   ["end frame gated by model capability", page.includes("selectedModel?.supportsEndFrame")],
   ["start image remove control", page.includes('aria-label="删除首帧图片"')],
   ["end image remove control", page.includes('aria-label="删除尾帧图片"')],
@@ -16,7 +16,7 @@ const checks = [
   ["remove button styling", css.includes(".frame-remove")],
   ["add button styling", css.includes(".frame-add")],
   ["prompt panel centered", css.includes("left:50%") && css.includes("translate(-50%,-5px)")],
-  ["prompt panel stays centered when visible", !css.includes("transform:translateY(0)")],
+  ["prompt panel stays centered when visible", css.includes("translate(-50%,0)")],
 ];
 
 const failed = checks.filter(([, passed]) => !passed);

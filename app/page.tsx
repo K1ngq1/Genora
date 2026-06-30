@@ -32,6 +32,9 @@ function HomePageContent() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
   const [mode, setMode] = useState<HomeMode>("image");
   const [modelMenuOpen, setModelMenuOpen] = useState(false);
+  const [ratioMenuOpen, setRatioMenuOpen] = useState(false);
+  const [resolutionMenuOpen, setResolutionMenuOpen] = useState(false);
+  const [motionMenuOpen, setMotionMenuOpen] = useState(false);
   const [prompt, setPrompt] = useState("");
   const [messages, setMessages] = useState<HomeMessage[]>([]);
   const [generationBusy, setGenerationBusy] = useState(false);
@@ -52,6 +55,7 @@ function HomePageContent() {
   const selectedModel = selectedModelFor(mode, mode === "image" ? imageModelId : videoModelId);
   const availableResolutions = selectedModel.resolutions.length ? selectedModel.resolutions : RESOLUTIONS;
   const availableRatios = selectedModel.ratios.length ? selectedModel.ratios : RATIOS;
+  const selectedMotion = MOTION_PRESETS.find((item) => item.id === motionPreset) ?? MOTION_PRESETS[0];
   const credits = estimateCredits({ model: selectedModel.id, resolution, duration, hasImageInput: Boolean(imageFile) });
   const creditLabel = selectedModel.free ? "Free" : `${credits.toFixed(2).replace(/\.00$/, "")} 积分`;
   const hasGeneration = messages.length > 0;
@@ -81,6 +85,9 @@ function HomePageContent() {
     if (!model.resolutions.includes(resolution)) setResolution(model.defaultResolution);
     if (model.kind === "video") setDuration(Math.min(model.maxDuration ?? duration, Math.max(model.minDuration ?? duration, duration)));
     setModelMenuOpen(false);
+    setRatioMenuOpen(false);
+    setResolutionMenuOpen(false);
+    setMotionMenuOpen(false);
   };
 
   const updateGridGlow = (event: PointerEvent<HTMLElement>) => {
@@ -250,8 +257,8 @@ function HomePageContent() {
 
         <section className={`home-composer-dock ${hasGeneration ? "has-generation" : ""}`} aria-label="创作对话框">
           <div className="home-mode-tabs">
-            <button type="button" className={mode === "image" ? "active" : ""} onClick={() => { setMode("image"); setModelMenuOpen(false); }}><Icon name="image" />图像生成</button>
-            <button type="button" className={mode === "video" ? "active" : ""} onClick={() => { setMode("video"); setModelMenuOpen(false); }}><Icon name="spark" />视频生成</button>
+            <button type="button" className={mode === "image" ? "active" : ""} onClick={() => { setMode("image"); setModelMenuOpen(false); setRatioMenuOpen(false); setResolutionMenuOpen(false); setMotionMenuOpen(false); }}><Icon name="image" />图像生成</button>
+            <button type="button" className={mode === "video" ? "active" : ""} onClick={() => { setMode("video"); setModelMenuOpen(false); setRatioMenuOpen(false); setResolutionMenuOpen(false); setMotionMenuOpen(false); }}><Icon name="spark" />视频生成</button>
           </div>
 
           <p className="home-composer-hint">
@@ -259,18 +266,32 @@ function HomePageContent() {
           </p>
 
           <input ref={imageInputRef} hidden type="file" accept="image/*" onChange={(event) => selectImage(event.target.files?.[0])} />
-          <button className="home-upload-strip" type="button" onClick={() => imageInputRef.current?.click()}>
-            {imagePreview ? <img src={imagePreview} alt="" /> : <><Icon name="upload" />上传图片</>}
-          </button>
+          <div className="home-upload-row">
+            {mode === "video" && (
+              <div className={`home-capsule-select home-motion-picker ${motionMenuOpen ? "open" : ""}`}>
+                <button className="home-select-trigger home-motion-trigger" type="button" onClick={() => { setMotionMenuOpen((current) => !current); setModelMenuOpen(false); setRatioMenuOpen(false); setResolutionMenuOpen(false); }} aria-expanded={motionMenuOpen}>
+                  <span>镜头方向</span>
+                  <b>{selectedMotion.label}</b>
+                  <Icon name="chevron-down" />
+                </button>
+                {motionMenuOpen && (
+                  <div className="home-capsule-menu home-motion-menu">
+                    {MOTION_PRESETS.map((item) => (
+                      <button key={item.id} type="button" className={motionPreset === item.id ? "selected" : ""} onClick={() => { setMotionPreset(item.id); setMotionMenuOpen(false); }}>
+                        {item.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+            <button className={`home-upload-strip ${imagePreview ? "has-preview" : ""}`} type="button" onClick={() => imageInputRef.current?.click()} title="????">
+              {imagePreview ? <img src={imagePreview} alt="" /> : <Icon name="plus" />}
+            </button>
+          </div>
 
           {mode === "video" && (
-            <div className="home-video-options">
-              <label>
-                <span>镜头方向</span>
-                <select value={motionPreset} onChange={(event) => setMotionPreset(event.target.value)}>
-                  {MOTION_PRESETS.map((item) => <option key={item.id} value={item.id}>{item.label}</option>)}
-                </select>
-              </label>
+            <div className="home-video-options home-video-duration-options">
               <label className="duration-control">
                 <span>{duration} 秒</span>
                 <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} value={duration} onChange={(event) => setDuration(Number(event.target.value))} />
@@ -293,29 +314,66 @@ function HomePageContent() {
             <div className="home-composer-footer">
               <div className="home-footer-controls">
                 <div className="home-model-picker">
-                  <button type="button" onClick={() => setModelMenuOpen((current) => !current)}><Icon name="box" />{selectedModel.label}</button>
+                  <button className="home-model-trigger" type="button" onClick={() => { setModelMenuOpen((current) => !current); setRatioMenuOpen(false); setResolutionMenuOpen(false); setMotionMenuOpen(false); }} aria-expanded={modelMenuOpen}>
+                    <span className="home-model-logo"><Icon name="box" /></span>
+                    <span className="home-model-trigger-copy">{selectedModel.label}</span>
+                    <Icon name="chevron-down" />
+                  </button>
                   {modelMenuOpen && (
                     <div className="home-model-menu">
                       {currentModels.map((model) => (
                         <button key={model.id} type="button" className={model.id === selectedModel.id ? "selected" : ""} onClick={() => selectModel(model)}>
-                          <span>{model.label}</span>
-                          <small>{model.free ? "Free" : model.provider}</small>
+                          <span className="home-model-logo"><Icon name="box" /></span>
+                          <span className="home-model-copy">
+                            <b>{model.label}</b>
+                            <small>{model.free ? "Free" : model.provider}</small>
+                          </span>
+                          <em>{model.kind === "image" ? "图像" : "视频"}</em>
                         </button>
                       ))}
                     </div>
                   )}
                 </div>
-                <select className="home-ratio-select" value={ratio} onChange={(event) => setRatio(event.target.value as CanvasRatio)}>
-                  {RATIOS.map((item) => <option key={item} value={item} disabled={!availableRatios.includes(item)}>{item}</option>)}
-                </select>
-                <select className="home-resolution-select" value={resolution} onChange={(event) => setResolution(event.target.value as CanvasResolution)}>
-                  {RESOLUTIONS.map((item) => <option key={item} value={item} disabled={!availableResolutions.includes(item)}>{optionLabel(item)}</option>)}
-                </select>
+                <div className={`home-capsule-select home-ratio-picker ${ratioMenuOpen ? "open" : ""}`}>
+                  <button className="home-select-trigger" type="button" onClick={() => { setRatioMenuOpen((current) => !current); setModelMenuOpen(false); setResolutionMenuOpen(false); setMotionMenuOpen(false); }} aria-expanded={ratioMenuOpen}>
+                    <span>{ratio}</span>
+                    <Icon name="chevron-down" />
+                  </button>
+                  {ratioMenuOpen && (
+                    <div className="home-capsule-menu home-ratio-menu">
+                      {RATIOS.map((item) => {
+                        const supported = availableRatios.includes(item);
+                        return (
+                          <button key={item} type="button" disabled={!supported} className={ratio === item ? "selected" : ""} onClick={() => { if (!supported) return; setRatio(item); setRatioMenuOpen(false); }}>
+                            {item}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+                <div className={`home-capsule-select home-resolution-picker ${resolutionMenuOpen ? "open" : ""}`}>
+                  <button className="home-select-trigger" type="button" onClick={() => { setResolutionMenuOpen((current) => !current); setModelMenuOpen(false); setRatioMenuOpen(false); setMotionMenuOpen(false); }} aria-expanded={resolutionMenuOpen}>
+                    <span>{optionLabel(resolution)}</span>
+                    <Icon name="chevron-down" />
+                  </button>
+                  {resolutionMenuOpen && (
+                    <div className="home-capsule-menu home-resolution-menu">
+                      {RESOLUTIONS.map((item) => {
+                        const supported = availableResolutions.includes(item);
+                        return (
+                          <button key={item} type="button" disabled={!supported} className={resolution === item ? "selected" : ""} onClick={() => { if (!supported) return; setResolution(item); setResolutionMenuOpen(false); }}>
+                            {optionLabel(item)}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
               </div>
               <div className="home-composer-actions">
-                <span className="home-credit-pill">{creditLabel}</span>
                 <button className={`voice-button ${voiceBusy ? "active" : ""}`} type="button" onClick={() => void startVoiceInput()} title="语音输入"><Icon name="mic" /></button>
-                <button className="submit-button" type="button" onClick={() => void submitHomeGeneration()} disabled={generationBusy || !prompt.trim()} title="生成"><span>生成</span><Icon name="send" /></button>
+                <button className="submit-button" type="button" onClick={() => void submitHomeGeneration()} disabled={generationBusy || !prompt.trim()} title="生成"><span>{creditLabel}</span><Icon name="send" /></button>
               </div>
             </div>
           </div>
