@@ -234,18 +234,46 @@ const ERROR_TEXT_ZH: Record<string, string> = {
 };
 
 const SUGGESTIONS = [
+  // 风格与氛围
   "把画面氛围调冷一点，但保留柔和的光",
-  "我想要一点孤独、安静、电影感的画面",
-  "分析这个人物图适合生成什么视频动作",
-  "把当前画布整理成一套镜头提示词",
-  "给这张图做一个 5 秒循环视频创意",
+  "我想要孤独、安静、电影感的画面",
+  "换成吉卜力那种温暖手绘感",
+  "加一点胶片颗粒和漏光质感",
+  "调成高对比的赛博朋克霓虹风",
+  "做成黑白纪实摄影的风格",
   "让主体动作更克制、更高级",
+  // 图像创意
+  "画一张赛博朋克雨夜街景，霓虹倒影",
+  "生成一张极简产品海报，大面积留白",
+  "画一个温馨咖啡馆内景，午后阳光",
+  "做一张水彩风格的儿童插画",
+  "生成俯视角美食摄影，暖色调",
   "设计三种不同风格的画面方案",
-  "这个画面适合做成什么短视频故事",
-  "生成一段适合 Agnes Video 的英文提示词",
-  "把它改成产品广告片的镜头语言",
+  // 视频运镜
+  "给这张人像加一个缓慢推近的特写",
+  "设计一个 360 度环绕展示运镜",
+  "做一个从远景到特写的电影感转场",
+  "生成一段延时摄影风格的流云",
+  "让水面波纹动起来，保持画面静谧",
   "给我一个温暖、慢节奏的运镜方案",
+  "把它改成产品广告片的镜头语言",
+  "给这张图做一个 5 秒循环视频创意",
+  "分析这个人物图适合生成什么视频动作",
+  "这个画面适合做成什么短视频故事",
+  // 画布操作与分析
+  "把当前画布整理成一套镜头提示词",
+  "基于画布上的图，续画一个不同角度",
+  "把画布里两张图融合成一个新创意",
+  "帮我对比画布上几个方案的优劣",
+  "给画布每个节点补一个更精准的提示词",
+  "整理画布为一套连贯的视觉故事板",
   "提炼当前画布里的核心视觉关键词",
+  // 提示词工程
+  "把我的描述扩写成更丰富的英文提示词",
+  "给这个提示词加三种风格变体",
+  "翻译并优化这段中文提示词为英文",
+  "精简这段提示词，去掉冗余保留核心",
+  "生成一段适合 Agnes Video 的英文提示词",
 ];
 
 const KIND_META: Record<Kind, { title: string; subtitle: string; icon: IconName }> = {
@@ -280,6 +308,14 @@ async function materializeReferenceUrl(url: string) {
   if (!response.ok) throw new Error("DOWNLOAD_FAILED");
   const blob = await response.blob();
   return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
+}
+
+async function localUrlToDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:") || /^https?:\/\//.test(url)) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+  const blob = await response.blob();
+  return fileToDataUrl(new File([blob], "canvas", { type: blob.type || "image/png" }));
 }
 
 function randomUuid(): string {
@@ -698,8 +734,9 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
         <div className="prompt-pop nodrag" onMouseDown={(event) => event.stopPropagation()}>
           {(data.kind === "image" || data.kind === "video") && (
             <div className="frame-strip">
-              <span className="prompt-tool-square" onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
+              <span className={`prompt-tool-square ${data.kind === "video" ? "motion-trigger-pill" : ""}`} onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
                 <Icon name="camera" />
+                {data.kind === "video" && <b>{MOTION_PRESETS.find((motion) => motion.id === (data.motionPreset ?? "auto"))?.label ?? "自动镜头"}</b>}
               </span>
               {motionOpen && (
                 <div className="motion-popover glass">
@@ -2240,11 +2277,11 @@ function WorkflowCanvas() {
       const fn = call.function;
       const name = fn?.name;
       if (!name || !AGENT_TOOL_NAMES.has(name)) {
-        log.push(`忽略未知工具:${name ?? "(空)"}`);
+        log.push("忽略了无法识别的指令");
         continue;
       }
       if (call.id && executedToolCallIdsRef.current.has(call.id)) {
-        log.push(`跳过重复调用(${name})`);
+        log.push("这条已经处理过了");
         continue;
       }
       if (call.id) executedToolCallIdsRef.current.add(call.id);
@@ -2252,48 +2289,48 @@ function WorkflowCanvas() {
       try {
         args = JSON.parse(fn?.arguments || "{}");
       } catch {
-        log.push(`${name} 失败:参数不是合法 JSON`);
+        log.push("指令参数有误,已跳过");
         continue;
       }
       try {
         if (name === "addNode") {
           const type = ["text", "image", "video"].includes(args.type as string) ? (args.type as Kind) : null;
-          if (!type) { log.push("addNode 失败:type 必须是 text/image/video"); continue; }
+          if (!type) { log.push("节点类型无效,已跳过"); continue; }
           const pos = args.position as { x?: number; y?: number } | undefined;
           const position = pos && typeof pos.x === "number" && typeof pos.y === "number" ? { x: pos.x, y: pos.y } : undefined;
           const newId = await addNode(type, position);
-          if (!newId) { log.push("addNode 失败:未能创建节点"); continue; }
+          if (!newId) { log.push("添加节点失败"); continue; }
           if (typeof args.prompt === "string" && args.prompt.trim()) update(newId, { prompt: args.prompt });
-          log.push(`新增${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
+          log.push(`已在画布中生成${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
         } else if (name === "updateNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("updateNode 跳过:节点不存在"); continue; }
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
           const patchSrc = args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
           const patch: Partial<WorkData> = {};
           if (typeof patchSrc.prompt === "string") patch.prompt = patchSrc.prompt;
           if (typeof patchSrc.title === "string") patch.title = patchSrc.title;
           if (typeof patchSrc.ratio === "string" && RATIOS.includes(patchSrc.ratio as Ratio)) patch.ratio = patchSrc.ratio as Ratio;
-          if (Object.keys(patch).length) { update(id, patch); log.push("修改节点"); }
-          else log.push("updateNode 跳过:无有效字段");
+          if (Object.keys(patch).length) { update(id, patch); log.push("已更新节点"); }
+          else log.push("节点无需更新");
         } else if (name === "removeNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("removeNode 跳过:节点不存在"); continue; }
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
           remove(id);
-          log.push("删除节点");
+          log.push("已删除节点");
         } else if (name === "generateNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("generateNode 跳过:节点不存在"); continue; }
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
           generate(id);
-          log.push("触发生成");
+          log.push("已开始生成");
         } else if (name === "addEdge") {
           const from = validNodeId(args.sourceNodeId);
           const to = validNodeId(args.targetNodeId);
-          if (!from || !to) { log.push("addEdge 跳过:节点不存在"); continue; }
+          if (!from || !to) { log.push("找不到节点,已跳过"); continue; }
           setEdges((current) => addEdge({ id: `${from}-${to}-${randomUuid()}`, source: from, target: to, animated: true }, current));
-          log.push("连接节点");
+          log.push("已连接节点");
         }
       } catch (err) {
-        log.push(`${name} 失败:${err instanceof Error ? err.message : "未知错误"}`);
+        log.push(`执行出错了:${err instanceof Error ? err.message : "未知错误"}`);
       }
     }
     return log;
@@ -2318,6 +2355,15 @@ function WorkflowCanvas() {
       const attachmentText = attachments.length
         ? attachments.map((item, index) => `${index + 1}. ${item.kind === "image" ? "图片" : "视频"}附件：${item.name}`).join("\n")
         : "无";
+      const selectedImageNodes = nodesRef.current
+        .filter((node) => node.selected && (node.data.kind === "image" || node.data.kind === "media-image") && node.data.url)
+        .slice(0, 4);
+      const canvasImageParts: { type: "image_url"; image_url: { url: string } }[] = [];
+      for (const node of selectedImageNodes) {
+        try {
+          canvasImageParts.push({ type: "image_url", image_url: { url: await localUrlToDataUrl(node.data.url as string) } });
+        } catch { /* skip unreadable image */ }
+      }
       const textPart = [
         "你是 Genora Agent,运行在画布旁。除了回答问题,你还可以调用工具直接操纵画布:addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时,请调用对应工具,并用一句话说明你做了什么。",
         "",
@@ -2326,13 +2372,15 @@ function WorkflowCanvas() {
         "",
         "【对话附件】",
         attachmentText,
+        ...(selectedImageNodes.length ? ["", "【画布视觉】已附上选中的图片,你可以直接看图来分析画面、优化提示词或生成创意。"] : []),
         "",
         "【上下文】",
         history,
       ].join("\n");
-      const imageParts = attachments
-        .filter((item) => item.kind === "image" && item.dataUrl)
-        .map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } }));
+      const imageParts = [
+        ...attachments.filter((item) => item.kind === "image" && item.dataUrl).map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } })),
+        ...canvasImageParts,
+      ];
       const response = await fetch("/api/agent/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -2352,8 +2400,8 @@ function WorkflowCanvas() {
         setAgentCanUndo(true);
         actionLog = await dispatchAgentToolCalls(toolCalls);
       }
-      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "已完成画布操作。" : "我已经收到。");
-      const footer = actionLog.length ? `\n\n[操作] ${actionLog.join("；")}` : "";
+      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "好的,已经帮你处理好。" : "我已经收到。");
+      const footer = actionLog.length ? `\n${actionLog.join("；")}` : "";
       setAgentMessages((current) => [...current, { role: "assistant", content: baseText + footer }]);
     } catch (error) {
       setAgentMessages((current) => [...current, { role: "assistant", content: error instanceof Error ? localizeError(error.message) : "Agent 调用失败", error: true }]);

@@ -61,4 +61,26 @@ await call("WITH tools + tool_choice auto", {
   tool_choice: "auto",
 });
 
+// === Vision probe: does agnes-2.0-flash accept image_url? ===
+// Test 1: public https direct link (Agnes server fetches it)
+// Test 2: data: base64 (likely rejected per adapter AGNES_LOCAL_IMAGE_UNSUPPORTED)
+const PUBLIC_IMG = "https://www.gstatic.com/webp/gallery/1.jpg";
+const DATA_IMG = "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAAC0lEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==";
+
+await call("WITH image_url (public https)", {
+  model: "agnes-2.0-flash",
+  messages: [{ role: "user", content: [
+    { type: "text", text: "请用一句话描述这张图片的内容。" },
+    { type: "image_url", image_url: { url: PUBLIC_IMG } },
+  ] }],
+});
+
+await call("WITH image_url (data: base64)", {
+  model: "agnes-2.0-flash",
+  messages: [{ role: "user", content: [
+    { type: "text", text: "请用一句话描述这张图片的内容。" },
+    { type: "image_url", image_url: { url: DATA_IMG } },
+  ] }],
+});
+
 console.log("\nProbe done.");
