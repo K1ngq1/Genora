@@ -1,6 +1,6 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
@@ -36,14 +36,28 @@ import {
   type CanvasResolution,
 } from "@/lib/model-catalog";
 import { getProviderLogo } from "@/lib/provider-logo-map";
+import {
+  getVideoModelCapabilities,
+  sanitizeVideoOptionsForModel,
+  videoModeLabels,
+  type VideoGenerationMode,
+} from "@/lib/video-model-capabilities";
 import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
 import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
 
-type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
+type Kind = "text" | "image" | "video" | "storyboard" | "media-image" | "media-video" | "group";
 type Ratio = CanvasRatio;
 type Quality = CanvasResolution;
 type MotionPreset = "auto" | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "orbit-left" | "orbit-right" | "low-angle" | "top-down";
 type ThemeTone = "dark" | "light";
+type StoryboardShot = {
+  id: string;
+  shotNumber: string;
+  visual: string;
+  cameraMotion: string;
+  duration: number;
+  videoPrompt: string;
+};
 type IconName =
   | "text"
   | "image"
@@ -87,6 +101,7 @@ type WorkData = {
   ratio: Ratio;
   quality: Quality;
   model?: string;
+  videoMode?: VideoGenerationMode;
   motionPreset?: MotionPreset;
   duration: number;
   settingsOpen?: boolean;
@@ -97,6 +112,11 @@ type WorkData = {
   startFrameName?: string;
   endFrameUrl?: string;
   endFrameName?: string;
+  referenceFrameUrls?: string[];
+  referenceFrameNames?: string[];
+  storyboardShots?: StoryboardShot[];
+  sourceStoryboardShotId?: string;
+  storyboardGenerating?: boolean;
   result?: string;
   taskId?: string;
   busy?: boolean;
@@ -110,6 +130,7 @@ type WorkData = {
   update: (id: string, patch: Partial<WorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
+  generateStoryboard: (id: string) => void;
 };
 
 type WorkNode = Node<WorkData, "work">;
@@ -133,6 +154,17 @@ type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x: numbe
 type CanvasClipboard = { nodes: StoredWorkNode[]; edges: Edge[] };
 type AgentMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 type AgentAttachment = { id: string; kind: "image" | "video"; name: string; url: string; dataUrl?: string };
+type AgentToolCall = { id: string; function: { name: string; arguments: string } };
+type AgentTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
+
+const AGENT_TOOL_NAMES = new Set(["addNode", "updateNode", "removeNode", "generateNode", "addEdge"]);
+const AGENT_CANVAS_TOOLS: AgentTool[] = [
+  { type: "function", function: { name: "addNode", description: "在画布上添加一个生成节点(text/image/video),可设置提示词和位置。", parameters: { type: "object", properties: { type: { type: "string", enum: ["text", "image", "video"], description: "节点类型" }, prompt: { type: "string", description: "生成提示词(可选)" }, position: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, description: "画布坐标(可选)" } }, required: ["type"] } } },
+  { type: "function", function: { name: "updateNode", description: "修改指定节点的字段。", parameters: { type: "object", properties: { nodeId: { type: "string" }, patch: { type: "object", properties: { prompt: { type: "string" }, title: { type: "string" }, ratio: { type: "string", enum: ["1:1", "4:3", "3:4", "16:9", "9:16"] } } } }, required: ["nodeId", "patch"] } } },
+  { type: "function", function: { name: "removeNode", description: "删除指定节点。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "generateNode", description: "触发指定节点的生成。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "addEdge", description: "连接两个节点,把 source 的输出作为 target 的输入。", parameters: { type: "object", properties: { sourceNodeId: { type: "string" }, targetNodeId: { type: "string" } }, required: ["sourceNodeId", "targetNodeId"] } } },
+];
 type CanvasProject = {
   id: string;
   name: string;
@@ -214,24 +246,53 @@ const ERROR_TEXT_ZH: Record<string, string> = {
 };
 
 const SUGGESTIONS = [
+  // 风格与氛围
   "把画面氛围调冷一点，但保留柔和的光",
-  "我想要一点孤独、安静、电影感的画面",
-  "分析这个人物图适合生成什么视频动作",
-  "把当前画布整理成一套镜头提示词",
-  "给这张图做一个 5 秒循环视频创意",
+  "我想要孤独、安静、电影感的画面",
+  "换成吉卜力那种温暖手绘感",
+  "加一点胶片颗粒和漏光质感",
+  "调成高对比的赛博朋克霓虹风",
+  "做成黑白纪实摄影的风格",
   "让主体动作更克制、更高级",
+  // 图像创意
+  "画一张赛博朋克雨夜街景，霓虹倒影",
+  "生成一张极简产品海报，大面积留白",
+  "画一个温馨咖啡馆内景，午后阳光",
+  "做一张水彩风格的儿童插画",
+  "生成俯视角美食摄影，暖色调",
   "设计三种不同风格的画面方案",
-  "这个画面适合做成什么短视频故事",
-  "生成一段适合 Agnes Video 的英文提示词",
-  "把它改成产品广告片的镜头语言",
+  // 视频运镜
+  "给这张人像加一个缓慢推近的特写",
+  "设计一个 360 度环绕展示运镜",
+  "做一个从远景到特写的电影感转场",
+  "生成一段延时摄影风格的流云",
+  "让水面波纹动起来，保持画面静谧",
   "给我一个温暖、慢节奏的运镜方案",
+  "把它改成产品广告片的镜头语言",
+  "给这张图做一个 5 秒循环视频创意",
+  "分析这个人物图适合生成什么视频动作",
+  "这个画面适合做成什么短视频故事",
+  // 画布操作与分析
+  "把当前画布整理成一套镜头提示词",
+  "基于画布上的图，续画一个不同角度",
+  "把画布里两张图融合成一个新创意",
+  "帮我对比画布上几个方案的优劣",
+  "给画布每个节点补一个更精准的提示词",
+  "整理画布为一套连贯的视觉故事板",
   "提炼当前画布里的核心视觉关键词",
+  // 提示词工程
+  "把我的描述扩写成更丰富的英文提示词",
+  "给这个提示词加三种风格变体",
+  "翻译并优化这段中文提示词为英文",
+  "精简这段提示词，去掉冗余保留核心",
+  "生成一段适合 Agnes Video 的英文提示词",
 ];
 
 const KIND_META: Record<Kind, { title: string; subtitle: string; icon: IconName }> = {
   text: { title: "文本", subtitle: "GPT-5.5", icon: "text" },
   image: { title: "图像", subtitle: "Agnes Image 2.1 Flash", icon: "image" },
   video: { title: "视频", subtitle: "Agnes Video V2.0", icon: "video" },
+  storyboard: { title: "\u5206\u955c\u8868\u683c", subtitle: "\u955c\u5934\u7ed3\u6784", icon: "grid" },
   "media-image": { title: "图片素材", subtitle: "本地输入", icon: "image" },
   "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
   group: { title: "节点组", subtitle: "容器", icon: "grid" },
@@ -260,6 +321,14 @@ async function materializeReferenceUrl(url: string) {
   if (!response.ok) throw new Error("DOWNLOAD_FAILED");
   const blob = await response.blob();
   return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
+}
+
+async function localUrlToDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:") || /^https?:\/\//.test(url)) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+  const blob = await response.blob();
+  return fileToDataUrl(new File([blob], "canvas", { type: blob.type || "image/png" }));
 }
 
 function randomUuid(): string {
@@ -452,6 +521,7 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const picker = useRef<HTMLInputElement>(null);
   const startFramePicker = useRef<HTMLInputElement>(null);
   const endFramePicker = useRef<HTMLInputElement>(null);
+  const referenceFramePicker = useRef<HTMLInputElement>(null);
   const meta = KIND_META[data.kind];
   const isMedia = data.kind.startsWith("media-");
   const [motionOpen, setMotionOpen] = useState(false);
@@ -463,11 +533,29 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
   const selectedModel = generationKind ? getModelDefinition(selectedModelId) : undefined;
   const availableModels = generationKind ? modelsForKind(generationKind) : [];
   const qualityOptions = data.kind === "video" ? VIDEO_QUALITIES : selectedModel?.resolutions ?? [];
+  const videoCapabilities = data.kind === "video" && selectedModel ? getVideoModelCapabilities(selectedModel.id) : undefined;
+  const videoOptions = videoCapabilities ? sanitizeVideoOptionsForModel(selectedModelId, {
+    mode: data.videoMode,
+    aspectRatio: data.ratio,
+    resolution: data.quality,
+    duration: data.duration,
+    hasStartFrame: Boolean(data.startFrameUrl),
+    hasEndFrame: Boolean(data.endFrameUrl),
+    hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
+  }) : undefined;
+  const videoSettingsSummary = videoOptions
+    ? `${videoModeLabels[videoOptions.mode]} · ${videoOptions.aspectRatio} · ${qualityLabel(videoOptions.resolution)} · ${videoOptions.duration}s`
+    : "";
+  const referenceFrameUrls = data.referenceFrameUrls ?? [];
+  const referenceFrameNames = data.referenceFrameNames ?? [];
+  const maxReferenceImages = videoCapabilities?.maxReferenceImages ?? 0;
+  const canAddReferenceFrame = maxReferenceImages === 0 || referenceFrameUrls.length < maxReferenceImages;
+  const frameMode = videoOptions?.mode ?? "text";
   const estimatedCredits = selectedModel ? estimateCredits({
     model: selectedModel.id,
     resolution: data.quality,
     duration: data.duration,
-    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.hasImageInput),
+    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.referenceFrameUrls?.length || data.hasImageInput),
   }) : 0;
   const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
   const textLengthClass = data.result && data.kind === "text"
@@ -505,10 +593,35 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
       data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
     }
   };
+  const importReferenceFrames = async (files: File[]) => {
+    if (!files.length || !videoCapabilities?.supportsReferenceImages || !canAddReferenceFrame) return;
+    const slots = maxReferenceImages ? Math.max(0, maxReferenceImages - referenceFrameUrls.length) : files.length;
+    const accepted = files.slice(0, slots).filter((file) => file.type.startsWith("image/"));
+    if (!accepted.length) {
+      data.update(id, { error: "REFERENCE_IMAGE_ONLY" });
+      return;
+    }
+    try {
+      const uploaded = await Promise.all(accepted.map(async (file) => ({ name: file.name, url: await data.uploadAsset(file) })));
+      data.update(id, {
+        referenceFrameUrls: [...referenceFrameUrls, ...uploaded.map((item) => item.url)].slice(0, maxReferenceImages || undefined),
+        referenceFrameNames: [...referenceFrameNames, ...uploaded.map((item) => item.name)].slice(0, maxReferenceImages || undefined),
+        error: "",
+      });
+    } catch (error) {
+      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
+    }
+  };
   const removeFrame = (slot: "start" | "end") => {
     data.update(id, slot === "start"
       ? { startFrameUrl: undefined, startFrameName: undefined }
       : { endFrameUrl: undefined, endFrameName: undefined });
+  };
+  const removeReferenceFrame = (index: number) => {
+    data.update(id, {
+      referenceFrameUrls: referenceFrameUrls.filter((_, itemIndex) => itemIndex !== index),
+      referenceFrameNames: referenceFrameNames.filter((_, itemIndex) => itemIndex !== index),
+    });
   };
   const openNextFramePicker = () => {
     if (!data.startFrameUrl) {
@@ -522,8 +635,30 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     endFramePicker.current?.click();
   };
   const selectModel = (modelId: string) => {
-    const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
-    data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
+    const model = getModelDefinition(modelId);
+    if (model.kind === "video") {
+      const normalized = sanitizeVideoOptionsForModel(modelId, {
+        mode: data.videoMode,
+        aspectRatio: data.ratio,
+        resolution: data.quality,
+        duration: data.duration,
+        hasStartFrame: Boolean(data.startFrameUrl),
+        hasEndFrame: Boolean(data.endFrameUrl),
+        hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
+      });
+      data.update(id, {
+        model: modelId,
+        videoMode: normalized.mode,
+        ratio: normalized.aspectRatio,
+        quality: normalized.resolution,
+        duration: normalized.duration,
+        settingsOpen: false,
+        error: "",
+      });
+    } else {
+      const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
+      data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
+    }
     setModelOpen(false);
   };
   const updateMediaLayout = (width: number, height: number) => {
@@ -541,6 +676,60 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
         <Handle type="target" position={Position.Left} className="port left" />
         <div className="group-node-title"><Icon name="grid" /><span>{data.title}</span></div>
         <div className="group-node-hint">拖动组可移动全部成员</div>
+        <Handle type="source" position={Position.Right} className="port right" />
+      </article>
+    );
+  }
+
+  if (data.kind === "storyboard") {
+    const storyboardShots = data.storyboardShots ?? [];
+    const updateShot = (shotId: string, patch: Partial<StoryboardShot>) => {
+      data.update(id, {
+        storyboardShots: storyboardShots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
+      });
+    };
+    const startShotDrag = (event: DragEvent<HTMLDivElement>, shot: StoryboardShot) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-genora-storyboard-shot", JSON.stringify({ sourceNodeId: id, shot }));
+      event.dataTransfer.setData("text/plain", shot.videoPrompt);
+    };
+    return (
+      <article className={`canvas-node glass storyboard ${data.selectionSuppressed ? "selection-suppressed" : ""}`}>
+        <Handle type="target" position={Position.Left} className="port left" />
+        <div className="node-badge">
+          <span>
+            <Icon name={meta.icon} />
+            {data.title}
+          </span>
+          <button aria-label="删除节点" onClick={() => data.remove(id)}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="storyboard-node-table nodrag">
+          <header>
+            <b>分镜表格</b>
+            <small>{storyboardShots.length} shots</small>
+          </header>
+          <div className="storyboard-table-head">
+            <span>镜号</span>
+            <span>画面描述</span>
+            <span>镜头运动</span>
+            <span>时长</span>
+            <span>视频提示词</span>
+          </div>
+          <div className="storyboard-table-body">
+            {storyboardShots.map((shot) => (
+              <div className="storyboard-table-row" key={shot.id} draggable onDragStart={(event) => startShotDrag(event, shot)}>
+                <input value={shot.shotNumber} onChange={(event) => updateShot(shot.id, { shotNumber: event.target.value })} />
+                <textarea value={shot.visual} onChange={(event) => updateShot(shot.id, { visual: event.target.value })} />
+                <textarea value={shot.cameraMotion} onChange={(event) => updateShot(shot.id, { cameraMotion: event.target.value })} />
+                <input type="number" min="1" max="20" value={shot.duration} onChange={(event) => updateShot(shot.id, { duration: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
+                <textarea value={shot.videoPrompt} onChange={(event) => updateShot(shot.id, { videoPrompt: event.target.value })} />
+              </div>
+            ))}
+          </div>
+          <p>拖拽任一分镜行到画布，可创建已连接的视频节点。</p>
+        </div>
         <Handle type="source" position={Position.Right} className="port right" />
       </article>
     );
@@ -632,12 +821,12 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                   </div>
                 </div>
               )}
-              {data.kind === "video" && (
+              {data.kind === "video" && frameMode !== "reference" && frameMode !== "text" && (
                 <>
                   <div className="frame-slot start-frame-slot">
-                    <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()}>
-                      {data.startFrameUrl ? <img src={data.startFrameUrl} alt="首帧" /> : <Icon name="image" />}
-                      <b>首帧</b>
+                    <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()} aria-label="首帧">
+                      {data.startFrameUrl ? <img src={data.startFrameUrl} alt="" /> : <Icon name="image" />}
+                      <span className="frame-tooltip">首帧</span>
                     </button>
                     {data.startFrameUrl && (
                       <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
@@ -645,11 +834,11 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                       </button>
                     )}
                   </div>
-                  {selectedModel?.supportsEndFrame && (
+                  {frameMode === "first-last" && videoCapabilities?.supportsFirstLastFrame && (
                     <div className="frame-slot end-frame-slot">
-                      <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()}>
-                        {data.endFrameUrl ? <img src={data.endFrameUrl} alt="尾帧" /> : <Icon name="image" />}
-                        <b>尾帧</b>
+                      <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()} aria-label="尾帧">
+                        {data.endFrameUrl ? <img src={data.endFrameUrl} alt="" /> : <Icon name="image" />}
+                        <span className="frame-tooltip">尾帧</span>
                       </button>
                       {data.endFrameUrl && (
                         <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
@@ -660,37 +849,54 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                   )}
                 </>
               )}
-              {data.startFrameUrl && (
+              {data.kind === "video" && frameMode === "reference" && videoCapabilities?.supportsReferenceImages && (
+                <div className="reference-frame-grid">
+                  {referenceFrameUrls.map((url, index) => (
+                    <div className="frame-slot reference-frame-slot" key={`${url}-${index}`}>
+                      <button type="button" className="frame-chip filled" onClick={() => referenceFramePicker.current?.click()} aria-label={`参考图 ${index + 1}`}>
+                        <img src={url} alt="" />
+                        <span className="frame-tooltip">参考</span>
+                      </button>
+                      <button type="button" className="frame-remove" aria-label="删除参考图" onClick={(event) => { event.stopPropagation(); removeReferenceFrame(index); }}>
+                        <Icon name="close" />
+                      </button>
+                    </div>
+                  ))}
+                  {canAddReferenceFrame && (
+                    <button type="button" className="frame-add reference-frame-add" aria-label="添加参考图" onClick={() => referenceFramePicker.current?.click()}>
+                      <Icon name="plus" />
+                      <span className="frame-tooltip">参考</span>
+                    </button>
+                  )}
+                </div>
+              )}
+              {data.kind === "image" && data.startFrameUrl && (
                 <div className="frame-chip-wrap">
                   <button type="button" className="frame-chip filled" onClick={() => startFramePicker.current?.click()}>
-                    <img src={data.startFrameUrl} alt="首帧" />
-                    <span>首帧</span>
+                    <img src={data.startFrameUrl} alt="" />
+                    <span className="frame-tooltip">首帧</span>
                   </button>
                   <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
                     <Icon name="close" />
                   </button>
                 </div>
               )}
-              {data.endFrameUrl && (
-                <div className="frame-chip-wrap">
-                  <button type="button" className="frame-chip filled" onClick={() => endFramePicker.current?.click()}>
-                    <img src={data.endFrameUrl} alt="尾帧" />
-                    <span>尾帧</span>
-                  </button>
-                  <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
-                    <Icon name="close" />
-                  </button>
-                </div>
+              {data.kind === "image" && (
+                <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
+                  <Icon name="plus" />
+                  <span className="frame-tooltip">首帧</span>
+                </button>
               )}
-              <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
-                <Icon name="plus" />
-              </button>
               <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                 importFrame("start", event.target.files?.[0]);
                 event.target.value = "";
               }} />
               <input ref={endFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
                 importFrame("end", event.target.files?.[0]);
+                event.target.value = "";
+              }} />
+              <input ref={referenceFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => {
+                void importReferenceFrames(Array.from(event.target.files ?? []));
                 event.target.value = "";
               }} />
             </div>
@@ -703,6 +909,17 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             placeholder="填写提示词，描述你想生成的内容..."
           />
           <div className="prompt-toolbar">
+            {data.kind === "text" && (
+              <button
+                type="button"
+                className="storyboard-trigger"
+                disabled={data.storyboardGenerating}
+                onClick={(event) => { event.stopPropagation(); data.generateStoryboard(id); }}
+              >
+                <Icon name="grid" />
+                {data.storyboardGenerating ? "生成中" : "分镜"}
+              </button>
+            )}
             {selectedModel && (
               <div className={`model-picker ${modelOpen ? "open" : ""}`}>
                 <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
@@ -724,35 +941,73 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
               <div className={`settings-details ${data.settingsOpen ? "open" : ""}`}>
                 <button type="button" className="settings-trigger" onClick={(event) => { event.stopPropagation(); setModelOpen(false); data.update(id, { settingsOpen: !data.settingsOpen }); }}>
                   <i className={`ratio-shape ratio-${data.ratio.replace(":", "-")}`} />
-                  {data.ratio} · {qualityLabel(data.quality)}
+                  <span className={data.kind === "video" ? "video-settings-summary" : ""}>
+                    {data.kind === "video" ? videoSettingsSummary : `${data.ratio} · ${qualityLabel(data.quality)}`}
+                  </span>
                 </button>
-                {data.settingsOpen && <div className="node-options">
-                  <div className="option-block">
-                    <span>画质与分辨率</span>
-                    <div className="quality-options">
-                      {qualityOptions.map((quality) => {
-                        const supported = selectedModel.resolutions.includes(quality);
-                        return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${qualityLabel(quality)}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{qualityLabel(quality)}</button>;
-                      })}
+                {data.settingsOpen && (
+                  data.kind === "video" && videoCapabilities && videoOptions ? (
+                    <div className="node-options video-node-options">
+                      <div className="option-block">
+                        <span>生成方式</span>
+                        <div className="video-mode-options">
+                          {videoCapabilities.supportedModes.filter((mode) => mode !== "text").map((mode) => (
+                            <button key={mode} className={videoOptions.mode === mode ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { videoMode: mode }); }}>{videoModeLabels[mode]}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>比例</span>
+                        <div className="ratio-options video-ratio-options">
+                          {videoCapabilities.aspectRatios.map((ratio) => (
+                            <button key={ratio} className={videoOptions.aspectRatio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { ratio }); }}>
+                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>清晰度</span>
+                        <div className="quality-options">
+                          {videoCapabilities.resolutions.map((quality) => (
+                            <button key={quality} className={videoOptions.resolution === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { quality }); }}>{qualityLabel(quality)}</button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>生成时长</span>
+                        <div className="quality-options duration-options">
+                          {videoCapabilities.durations.map((duration) => (
+                            <button key={duration} className={videoOptions.duration === duration ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { duration }); }}>{duration}s</button>
+                          ))}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  <div className="option-block">
-                    <span>比例</span>
-                    <div className="ratio-options">
-                      {RATIOS.map((ratio) => {
-                        const supported = selectedModel.ratios.includes(ratio);
-                        return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
-                          <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
-                        </button>;
-                      })}
+                  ) : (
+                    <div className="node-options">
+                      <div className="option-block">
+                        <span>画质与分辨率</span>
+                        <div className="quality-options">
+                          {qualityOptions.map((quality) => {
+                            const supported = selectedModel.resolutions.includes(quality);
+                            return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${qualityLabel(quality)}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{qualityLabel(quality)}</button>;
+                          })}
+                        </div>
+                      </div>
+                      <div className="option-block">
+                        <span>比例</span>
+                        <div className="ratio-options">
+                          {RATIOS.map((ratio) => {
+                            const supported = selectedModel.ratios.includes(ratio);
+                            return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
+                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
+                            </button>;
+                          })}
+                        </div>
+                      </div>
                     </div>
-                  </div>
-                  {data.kind === "video" && <div className="option-block duration-block">
-                    <span>生成时长 <b>{data.duration} 秒</b></span>
-                    <input type="range" min={selectedModel.minDuration ?? 1} max={selectedModel.maxDuration ?? 18} step="1" value={data.duration} onChange={(event) => data.update(id, { duration: Number(event.target.value) })} />
-                    <div><small>{selectedModel.minDuration ?? 1} 秒</small><small>按模型能力</small><small>{selectedModel.maxDuration ?? 18} 秒</small></div>
-                  </div>}
-                </div>}
+                  )
+                )}
               </div>
             )}
             {data.kind === "video" && selectedModel?.supportsNegativePrompt && (
@@ -772,7 +1027,6 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
                 )}
               </div>
             )}
-            {data.kind === "video" && <span>{data.duration} 秒</span>}
             {selectedModel && <span className={`generation-cost ${selectedModel.free ? "free" : ""}`}>{selectedModel.free ? "Free" : `预计 ${estimatedCredits.toFixed(2).replace(/\.00$/, "")} 积分`}</span>}
             <button className="generate-button-submit" aria-label={data.busy ? "打断生成" : "生成"} title={data.busy ? "打断生成" : "生成"} onClick={() => data.generate(id)}>
               <span className="submit-credit-mark"><Icon name={data.busy ? "stop" : "spark"} /></span>
@@ -798,6 +1052,7 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.ratio === b.ratio &&
     a.quality === b.quality &&
     a.model === b.model &&
+    a.videoMode === b.videoMode &&
     a.motionPreset === b.motionPreset &&
     a.duration === b.duration &&
     a.settingsOpen === b.settingsOpen &&
@@ -808,6 +1063,11 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.startFrameName === b.startFrameName &&
     a.endFrameUrl === b.endFrameUrl &&
     a.endFrameName === b.endFrameName &&
+    a.referenceFrameUrls === b.referenceFrameUrls &&
+    a.referenceFrameNames === b.referenceFrameNames &&
+    a.storyboardShots === b.storyboardShots &&
+    a.sourceStoryboardShotId === b.sourceStoryboardShotId &&
+    a.storyboardGenerating === b.storyboardGenerating &&
     a.result === b.result &&
     a.taskId === b.taskId &&
     a.busy === b.busy &&
@@ -867,6 +1127,7 @@ function WorkflowCanvas() {
   const [agentInput, setAgentInput] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
+  const [agentCanUndo, setAgentCanUndo] = useState(false);
   const [agentAttachments, setAgentAttachments] = useState<AgentAttachment[]>([]);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
@@ -912,8 +1173,11 @@ function WorkflowCanvas() {
   const projectLoadedRef = useRef(false);
   const dirtyRef = useRef(false);
   const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
+  const agentSnapshotRef = useRef<{ nodes: WorkNode[]; edges: Edge[] } | null>(null);
+  const executedToolCallIdsRef = useRef<Set<string>>(new Set());
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
+  const generateStoryboardRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
   const saveProjectRef = useRef<((name?: string) => Promise<boolean>) | undefined>(undefined);
   const imagePicker = useRef<HTMLInputElement>(null);
@@ -1048,7 +1312,7 @@ function WorkflowCanvas() {
       .filter((node) => idSet.has(node.id))
       .map((node) => {
         const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
         ) as StoredWorkData;
         return { ...node, selected: false, data };
       });
@@ -1072,7 +1336,7 @@ function WorkflowCanvas() {
       .filter((node) => idSet.has(node.id))
       .map((node) => {
         const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
         ) as StoredWorkData;
         return { ...node, selected: false, data };
       }) as StoredWorkNode[];
@@ -1129,6 +1393,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
     })) as WorkNode[];
     const pastedEdges = snapshot.edges.map((edge) => ({
@@ -1173,6 +1438,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
       selected: true,
     };
@@ -1252,18 +1518,26 @@ function WorkflowCanvas() {
   }, [copyCanvasSelection, cutCanvasSelection, deleteCanvasNodes, pasteCanvasSelection, restoreDeletedCanvas, selectedIds]);
   const setCanvasZoom = useCallback((value: number) => reactFlow.zoomTo(Math.min(2, Math.max(0.25, value)), { duration: 160 }), [reactFlow]);
   const canvasSummary = useCallback(() => {
-    const list = nodesRef.current.map((node, index) => {
-      const kind = KIND_META[node.data.kind]?.title ?? node.data.kind;
-      const parts = [
-        node.data.prompt ? `提示词：${node.data.prompt}` : "",
-        node.data.result ? `结果：${node.data.result}` : "",
-        node.data.url ? `素材/结果：${node.data.title}` : "",
-        node.data.error ? `错误：${node.data.error}` : "",
-      ].filter(Boolean).join("；");
-      return `${index + 1}. ${kind}节点「${node.data.title}」：${parts || "暂无内容"}`;
+    if (!nodesRef.current.length) return "画布当前没有节点。";
+    const lines = nodesRef.current.map((node) => {
+      const d = node.data;
+      const status = d.error ? "error" : d.busy ? "generating" : (d.url || d.result) ? "done" : "idle";
+      const connected = edgesRef.current
+        .filter((edge) => edge.source === node.id || edge.target === node.id)
+        .map((edge) => (edge.source === node.id ? edge.target : edge.source));
+      const fields = [
+        `id:${node.id}`,
+        `type:${d.kind}`,
+        `title:${d.title}`,
+        d.prompt ? `prompt:${d.prompt}` : "",
+        `status:${status}`,
+        d.url ? `outputUrl:${d.url}` : "",
+        `position:(${Math.round(node.position.x)},${Math.round(node.position.y)})`,
+        connected.length ? `connectedNodeIds:${connected.join(",")}` : "",
+      ].filter(Boolean).join(" | ");
+      return `- ${fields}`;
     });
-    const edgeList = edgesRef.current.map((edge, index) => `${index + 1}. ${edge.source} -> ${edge.target}`);
-    return `${list.length ? list.join("\n") : "画布当前没有节点。"}\n\n连接关系：\n${edgeList.length ? edgeList.join("\n") : "暂无连接。"}`;
+    return `画布节点(后续工具用 id 作为 nodeId/sourceNodeId/targetNodeId 引用):\n${lines.join("\n")}`;
   }, []);
 
   const pollTask = useCallback((nodeId: string, taskId: string, attempt = 0) => {
@@ -1357,7 +1631,7 @@ function WorkflowCanvas() {
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
     if (modelDefinition?.provider === "agnes" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 Agnes API Key。" });
-    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
+    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
       return update(id, { error: "请先在 .env 中配置 SUPABASE_SERVICE_ROLE_KEY。" });
     }
 
@@ -1386,11 +1660,20 @@ function WorkflowCanvas() {
         });
       } else {
         const model = modelDefinition ?? getModelDefinition("agnes-video-v2.0");
-        const requestedQuality = node.data.quality;
-        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((node.data.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
+        const normalizedVideoOptions = sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))),
+        });
+        const requestedQuality = normalizedVideoOptions.resolution;
+        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((normalizedVideoOptions.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
         const safeQuality = model.provider === "agnes" ? (requestedQuality === "720p" ? requestedQuality : SAFE_VIDEO_QUALITY) : requestedQuality;
         const safeFrames = model.provider === "agnes" ? Math.min(SAFE_VIDEO_MAX_FRAMES, requestedFrames) : requestedFrames;
-        const { width, height } = getVideoDimensions(node.data.ratio, safeQuality);
+        const { width, height } = getVideoDimensions(normalizedVideoOptions.aspectRatio, safeQuality);
         if (model.provider === "agnes" && (requestedQuality !== safeQuality || requestedFrames !== safeFrames)) {
           update(id, {
             result: `已按稳定生成策略提交：${safeQuality.toUpperCase()} · ${safeFrames} 帧。高画质或长时长容易触发 Agnes 上游显存不足。`,
@@ -1399,11 +1682,11 @@ function WorkflowCanvas() {
         const form = new FormData();
         form.set("prompt", prompt);
         form.set("model", model.id);
-        form.set("ratio", node.data.ratio);
-        form.set("aspectRatio", node.data.ratio);
-        form.set("resolution", node.data.quality);
-        form.set("quality", node.data.quality);
-        form.set("duration", String(node.data.duration));
+        form.set("ratio", normalizedVideoOptions.aspectRatio);
+        form.set("aspectRatio", normalizedVideoOptions.aspectRatio);
+        form.set("resolution", normalizedVideoOptions.resolution);
+        form.set("quality", normalizedVideoOptions.resolution);
+        form.set("duration", String(normalizedVideoOptions.duration));
         if (node.data.negativePrompt) form.set("negativePrompt", node.data.negativePrompt);
         form.set("width", String(width));
         form.set("height", String(height));
@@ -1415,15 +1698,24 @@ function WorkflowCanvas() {
           form.set("motionPrompt", motion.prompt);
         }
         const imageSources = upstream.filter((item) => item.data.url && !item.data.kind.includes("video"));
-        if (node.data.startFrameUrl) {
+        const shouldUseStartFrame = normalizedVideoOptions.mode === "first-frame" || normalizedVideoOptions.mode === "first-last";
+        const shouldUseEndFrame = normalizedVideoOptions.mode === "first-last";
+        const shouldUseReferences = normalizedVideoOptions.mode === "reference";
+        if (shouldUseStartFrame && node.data.startFrameUrl) {
           await appendImageFromUrl(form, "startFrame", node.data.startFrameUrl, node.data.startFrameName ?? "reference-start.png");
         }
-        if (node.data.endFrameUrl) {
+        if (shouldUseEndFrame && node.data.endFrameUrl) {
           await appendImageFromUrl(form, "endFrame", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png");
         }
-        for (const [index, source] of imageSources.entries()) {
-          if (source.data.url) {
-            await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
+        if (shouldUseReferences) {
+          const nodeReferenceUrls = node.data.referenceFrameUrls ?? [];
+          for (const [index, url] of nodeReferenceUrls.entries()) {
+            await appendImageFromUrl(form, "referenceImages", url, node.data.referenceFrameNames?.[index] || `reference-${index + 1}.png`, "append");
+          }
+          for (const [index, source] of imageSources.entries()) {
+            if (source.data.url) {
+              await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
+            }
           }
         }
         response = await fetch("/api/videos/generate", { method: "POST", body: form });
@@ -1447,6 +1739,56 @@ function WorkflowCanvas() {
   useEffect(() => {
     generateRef.current = generate;
   }, [generate]);
+
+  const generateStoryboard = useCallback(async (id: string) => {
+    const source = nodesRef.current.find((item) => item.id === id);
+    if (!source || source.data.kind !== "text") return;
+    const text = String(source.data.result || source.data.prompt || "").trim();
+    if (!text) {
+      update(id, { error: "请先填写文本或生成文本结果。" });
+      return;
+    }
+    update(id, { storyboardGenerating: true, error: "" });
+    try {
+      const response = await fetch("/api/storyboards/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const body = await readJson(response) as { storyboardShots?: StoryboardShot[]; error?: string; errorCode?: string };
+      if (!response.ok || !body.storyboardShots?.length) throw new Error(responseError(body, "INVALID_JSON_RESPONSE"));
+      const storyboardId = randomUuid();
+      const position = { x: source.position.x + 420, y: source.position.y };
+      const storyboardNode: WorkNode = {
+        id: storyboardId,
+        type: "work",
+        position,
+        data: {
+          kind: "storyboard",
+          title: KIND_META.storyboard.title,
+          prompt: "",
+          ratio: "16:9",
+          quality: "720p",
+          duration: 0,
+          storyboardShots: body.storyboardShots,
+          uploadAsset: (file) => uploadAssetRef.current(file),
+          update,
+          remove,
+          generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+        },
+      };
+      markUnsaved();
+      setNodes((current) => [...current, storyboardNode]);
+      setEdges((current) => addEdge({ id: `${id}-${storyboardId}-${randomUuid()}`, source: id, target: storyboardId, animated: true }, current));
+      update(id, { storyboardGenerating: false, error: "" });
+    } catch (error) {
+      update(id, { storyboardGenerating: false, error: error instanceof Error ? localizeError(error.message) : "分镜生成失败" });
+    }
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+  useEffect(() => {
+    generateStoryboardRef.current = generateStoryboard;
+  }, [generateStoryboard]);
 
   const uploadCanvasFile = useCallback(async (file: File) => {
     const projectId = projectRef.current?.id;
@@ -1616,6 +1958,7 @@ function WorkflowCanvas() {
         return;
       }
     }
+    const videoDefaults = kind === "video" ? sanitizeVideoOptionsForModel("kling-v3-omni", {}) : undefined;
     markUnsaved();
     setNodes((current) => [...current, {
       id,
@@ -1625,21 +1968,24 @@ function WorkflowCanvas() {
         kind,
         title: file?.name ?? KIND_META[kind].title,
         prompt: "",
-        ratio: kind === "video" ? "16:9" : "1:1",
-        quality: kind === "video" ? "720p" : "1k",
+        ratio: videoDefaults?.aspectRatio ?? (kind === "video" ? "16:9" : "1:1"),
+        quality: videoDefaults?.resolution ?? (kind === "video" ? "720p" : "1k"),
         model: kind === "image" ? "gpt-image-2" : kind === "video" ? "kling-v3-omni" : undefined,
+        videoMode: videoDefaults?.mode,
         motionPreset: kind === "video" ? "auto" : undefined,
-        duration: 5,
+        duration: videoDefaults?.duration ?? 5,
         negativePrompt: "",
         url: persistentUrl,
         uploadAsset: (nextFile) => uploadAssetRef.current(nextFile),
         update,
         remove,
         generate,
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
       },
     }]);
     if (sourceId) fanOutGroupConnection(sourceId, id);
     setMenu(undefined);
+    return id;
   }, [fanOutGroupConnection, generate, markUnsaved, reactFlow, remove, setNodes, update, uploadCanvasFile]);
 
   const addLibraryItemToCanvas = useCallback((item: MaterialLibraryItem) => {
@@ -1667,6 +2013,7 @@ function WorkflowCanvas() {
           update,
           remove,
           generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
         },
       })) as WorkNode[];
       const pastedEdges = (item.edges ?? []).map((edge) => ({
@@ -1693,6 +2040,44 @@ function WorkflowCanvas() {
     });
   }, [addNode, markUnsaved, reactFlow, remove, setEdges, setNodes, update]);
 
+  const createVideoFromStoryboardShot = useCallback((sourceNodeId: string, shot: StoryboardShot, position: { x: number; y: number }) => {
+    const source = nodesRef.current.find((node) => node.id === sourceNodeId);
+    if (!source || source.data.kind !== "storyboard") return;
+    const modelId = "kling-v3-omni";
+    const normalized = sanitizeVideoOptionsForModel(modelId, {
+      aspectRatio: "16:9",
+      resolution: "720p",
+      duration: shot.duration,
+    });
+    const id = randomUuid();
+    const videoNode: WorkNode = {
+      id,
+      type: "work",
+      position: { x: position.x - 140, y: position.y - 70 },
+      data: {
+        kind: "video",
+        title: `${KIND_META.video.title} ${shot.shotNumber}`,
+        prompt: shot.videoPrompt,
+        ratio: normalized.aspectRatio,
+        quality: normalized.resolution,
+        model: modelId,
+        videoMode: normalized.mode,
+        motionPreset: "auto",
+        duration: normalized.duration,
+        negativePrompt: "",
+        sourceStoryboardShotId: shot.id,
+        uploadAsset: (file) => uploadAssetRef.current(file),
+        update,
+        remove,
+        generate: (nodeId) => generateRef.current(nodeId),
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+      },
+    };
+    markUnsaved();
+    setNodes((current) => [...current, videoNode]);
+    setEdges((current) => addEdge({ id: `${sourceNodeId}-${id}-${randomUuid()}`, source: sourceNodeId, target: id, animated: true }, current));
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+
   const openMenu = useCallback((x: number, y: number, sourceId?: string) => setMenu({ screen: { x, y }, flow: reactFlow.screenToFlowPosition({ x, y }), sourceId }), [reactFlow]);
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
@@ -1705,12 +2090,24 @@ function WorkflowCanvas() {
   }, [openMenu]);
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    const storyboardPayload = event.dataTransfer.getData("application/x-genora-storyboard-shot");
+    if (storyboardPayload) {
+      try {
+        const parsed = JSON.parse(storyboardPayload) as { sourceNodeId?: string; shot?: StoryboardShot };
+        if (parsed.sourceNodeId && parsed.shot) {
+          createVideoFromStoryboardShot(parsed.sourceNodeId, parsed.shot, reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+        }
+      } catch {
+        setSaveStatus("error");
+      }
+      return;
+    }
     const file = event.dataTransfer.files[0];
     if (!file) return;
     const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     if (file.type.startsWith("image/")) addNode("media-image", position, file);
     if (file.type.startsWith("video/")) addNode("media-video", position, file);
-  }, [addNode, reactFlow]);
+  }, [addNode, createVideoFromStoryboardShot, reactFlow]);
   const onWheel = useCallback((event: React.WheelEvent) => {
     if (!event.ctrlKey) return;
     event.preventDefault();
@@ -1746,7 +2143,7 @@ function WorkflowCanvas() {
   const canvasProjectData = useCallback(() => {
     const storedNodes = nodesRef.current.map((node) => {
       const data = Object.fromEntries(
-        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate"].includes(key)),
+        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
       ) as StoredWorkData;
       return {
         ...node,
@@ -1910,22 +2307,35 @@ function WorkflowCanvas() {
       if (cancelled) return;
 
       const hydratedNodes = loaded.canvasData.nodes.map((node) => {
-        const model = node.data.kind === "image"
-          ? getModelDefinition(node.data.model ?? "agnes-image-2.1-flash")
+        const model = node.data.kind === "image" || node.data.kind === "video"
+          ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0"))
           : undefined;
-        const quality = model && !model.resolutions.includes(node.data.quality)
+        const videoOptions = node.data.kind === "video" && model ? sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || node.data.hasImageInput),
+        }) : undefined;
+        const quality = videoOptions?.resolution ?? (model && !model.resolutions.includes(node.data.quality)
           ? model.defaultResolution
-          : node.data.quality;
+          : node.data.quality);
         return {
           ...node,
           data: {
             ...node.data,
+            ratio: videoOptions?.aspectRatio ?? node.data.ratio,
             quality,
+            videoMode: videoOptions?.mode ?? node.data.videoMode,
+            duration: videoOptions?.duration ?? node.data.duration,
             busy: false,
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
             remove,
             generate,
+            generateStoryboard,
           },
         };
       }) as WorkNode[];
@@ -1945,6 +2355,11 @@ function WorkflowCanvas() {
           resolution: launchKind === "video" ? "720p" : "1k",
           duration: 5,
         });
+        const videoOptions = launchKind === "video" ? sanitizeVideoOptionsForModel(modelId, {
+          aspectRatio: options.ratio,
+          resolution: options.resolution,
+          duration: options.duration,
+        }) : undefined;
         launchNodes = [{
           id: randomUuid(),
           type: "work",
@@ -1953,16 +2368,18 @@ function WorkflowCanvas() {
             kind: launchKind,
             title: KIND_META[launchKind].title,
             prompt: launchPrompt,
-            ratio: options.ratio,
-            quality: options.resolution,
+            ratio: videoOptions?.aspectRatio ?? options.ratio,
+            quality: videoOptions?.resolution ?? options.resolution,
             model: modelId,
+            videoMode: videoOptions?.mode,
             motionPreset: launchKind === "video" ? "auto" : undefined,
-            duration: launchKind === "video" ? options.duration : 0,
+            duration: launchKind === "video" ? videoOptions?.duration ?? options.duration : 0,
             negativePrompt: "",
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
             remove,
             generate,
+            generateStoryboard,
           },
         }];
         launchChanged = true;
@@ -1995,7 +2412,7 @@ function WorkflowCanvas() {
 
     loadProject().catch(() => setSaveStatus("error"));
     return () => { cancelled = true; };
-  }, [generate, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
+  }, [generate, generateStoryboard, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -2027,6 +2444,86 @@ function WorkflowCanvas() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  const undoAgentActions = useCallback(() => {
+    const snap = agentSnapshotRef.current;
+    if (!snap) return;
+    agentSnapshotRef.current = null;
+    setAgentCanUndo(false);
+    markUnsaved();
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelectedIds([]);
+  }, [markUnsaved, setEdges, setNodes]);
+
+  const dispatchAgentToolCalls = useCallback(async (toolCalls: AgentToolCall[]): Promise<string[]> => {
+    const log: string[] = [];
+    const validNodeId = (id: unknown): string | null => {
+      if (typeof id !== "string" || !id) return null;
+      return nodesRef.current.some((n) => n.id === id) ? id : null;
+    };
+    for (const call of toolCalls) {
+      const fn = call.function;
+      const name = fn?.name;
+      if (!name || !AGENT_TOOL_NAMES.has(name)) {
+        log.push("忽略了无法识别的指令");
+        continue;
+      }
+      if (call.id && executedToolCallIdsRef.current.has(call.id)) {
+        log.push("这条已经处理过了");
+        continue;
+      }
+      if (call.id) executedToolCallIdsRef.current.add(call.id);
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(fn?.arguments || "{}");
+      } catch {
+        log.push("指令参数有误,已跳过");
+        continue;
+      }
+      try {
+        if (name === "addNode") {
+          const type = ["text", "image", "video"].includes(args.type as string) ? (args.type as Kind) : null;
+          if (!type) { log.push("节点类型无效,已跳过"); continue; }
+          const pos = args.position as { x?: number; y?: number } | undefined;
+          const position = pos && typeof pos.x === "number" && typeof pos.y === "number" ? { x: pos.x, y: pos.y } : undefined;
+          const newId = await addNode(type, position);
+          if (!newId) { log.push("添加节点失败"); continue; }
+          if (typeof args.prompt === "string" && args.prompt.trim()) update(newId, { prompt: args.prompt });
+          log.push(`已在画布中生成${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
+        } else if (name === "updateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          const patchSrc = args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
+          const patch: Partial<WorkData> = {};
+          if (typeof patchSrc.prompt === "string") patch.prompt = patchSrc.prompt;
+          if (typeof patchSrc.title === "string") patch.title = patchSrc.title;
+          if (typeof patchSrc.ratio === "string" && RATIOS.includes(patchSrc.ratio as Ratio)) patch.ratio = patchSrc.ratio as Ratio;
+          if (Object.keys(patch).length) { update(id, patch); log.push("已更新节点"); }
+          else log.push("节点无需更新");
+        } else if (name === "removeNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          remove(id);
+          log.push("已删除节点");
+        } else if (name === "generateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          generate(id);
+          log.push("已开始生成");
+        } else if (name === "addEdge") {
+          const from = validNodeId(args.sourceNodeId);
+          const to = validNodeId(args.targetNodeId);
+          if (!from || !to) { log.push("找不到节点,已跳过"); continue; }
+          setEdges((current) => addEdge({ id: `${from}-${to}-${randomUuid()}`, source: from, target: to, animated: true }, current));
+          log.push("已连接节点");
+        }
+      } catch (err) {
+        log.push(`执行出错了:${err instanceof Error ? err.message : "未知错误"}`);
+      }
+    }
+    return log;
+  }, [addNode, generate, remove, setEdges, update]);
+
   const sendAgent = useCallback(async () => {
     const content = agentInput.trim();
     if (!content || agentBusy) return;
@@ -2046,39 +2543,60 @@ function WorkflowCanvas() {
       const attachmentText = attachments.length
         ? attachments.map((item, index) => `${index + 1}. ${item.kind === "image" ? "图片" : "视频"}附件：${item.name}`).join("\n")
         : "无";
+      const selectedImageNodes = nodesRef.current
+        .filter((node) => node.selected && (node.data.kind === "image" || node.data.kind === "media-image") && node.data.url)
+        .slice(0, 4);
+      const canvasImageParts: { type: "image_url"; image_url: { url: string } }[] = [];
+      for (const node of selectedImageNodes) {
+        try {
+          canvasImageParts.push({ type: "image_url", image_url: { url: await localUrlToDataUrl(node.data.url as string) } });
+        } catch { /* skip unreadable image */ }
+      }
       const textPart = [
-        "你是 Genora Agent。请读取当前画布摘要、对话附件和历史上下文，回答最后一个用户问题。",
+        "你是 Genora Agent,运行在画布旁。除了回答问题,你还可以调用工具直接操纵画布:addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时,请调用对应工具,并用一句话说明你做了什么。",
         "",
         "【画布内容】",
         canvasSummary(),
         "",
         "【对话附件】",
         attachmentText,
+        ...(selectedImageNodes.length ? ["", "【画布视觉】已附上选中的图片,你可以直接看图来分析画面、优化提示词或生成创意。"] : []),
         "",
         "【上下文】",
         history,
       ].join("\n");
-      const imageParts = attachments
-        .filter((item) => item.kind === "image" && item.dataUrl)
-        .map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } }));
+      const imageParts = [
+        ...attachments.filter((item) => item.kind === "image" && item.dataUrl).map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } })),
+        ...canvasImageParts,
+      ];
       const response = await fetch("/api/agent/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "agnes-2.0-flash",
           prompt: textPart,
+          tools: AGENT_CANVAS_TOOLS,
           messages: [{ role: "user", content: [{ type: "text", text: textPart }, ...imageParts] }],
         }),
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
-      setAgentMessages((current) => [...current, { role: "assistant", content: body.text ?? "我已经收到。" }]);
+      const toolCalls = Array.isArray(body.tool_calls) ? (body.tool_calls as AgentToolCall[]) : [];
+      let actionLog: string[] = [];
+      if (toolCalls.length) {
+        agentSnapshotRef.current = { nodes: [...nodesRef.current], edges: [...edgesRef.current] };
+        setAgentCanUndo(true);
+        actionLog = await dispatchAgentToolCalls(toolCalls);
+      }
+      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "好的,已经帮你处理好。" : "我已经收到。");
+      const footer = actionLog.length ? `\n${actionLog.join("；")}` : "";
+      setAgentMessages((current) => [...current, { role: "assistant", content: baseText + footer }]);
     } catch (error) {
       setAgentMessages((current) => [...current, { role: "assistant", content: error instanceof Error ? localizeError(error.message) : "Agent 调用失败", error: true }]);
     } finally {
       setAgentBusy(false);
     }
-  }, [agentBusy, agentInput, canvasSummary]);
+  }, [agentBusy, agentInput, canvasSummary, dispatchAgentToolCalls]);
 
   const resetAgent = useCallback(() => {
     setAgentInput("");
@@ -2365,7 +2883,7 @@ function WorkflowCanvas() {
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
       {agentOpen && (
         <aside className={`agent-panel ${agentHasConversation ? "chatting" : ""}`}>
-          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button><button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
+          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button>{agentCanUndo && <button aria-label="撤销 Agent 操作" title="撤销 Agent 操作" onClick={undoAgentActions}><Icon name="history" /></button>}<button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
           {!agentHasConversation && (
             <section className="agent-hero">
               <p className="agent-hi"><img src="/assets/genora-logo.png" alt="" />Hi! {TEMP_USER_NAME}</p>

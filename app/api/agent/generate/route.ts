@@ -1,4 +1,4 @@
-import { generateAgnesImage, generateAgnesMessages, generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
+import { generateAgnesImage, generateAgnesMessages, generateAgnesMessagesWithTools, generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { saveBuffer, storageUrl } from "@/lib/storage";
 
@@ -16,6 +16,11 @@ export async function POST(request: Request) {
   if (!prompt && !messages?.length) return errorResponse(new AppError("EMPTY_AGENT_PROMPT", 400), 400);
   try {
     if (model === TEXT_MODEL) {
+      const tools = Array.isArray(body.tools) ? body.tools : undefined;
+      if (tools?.length && messages?.length) {
+        const message = await generateAgnesMessagesWithTools(messages, tools);
+        return Response.json({ model, text: message.content, tool_calls: message.tool_calls, raw: message.raw });
+      }
       const text = messages?.length ? await generateAgnesMessages(messages) : await generateAgnesText(prompt);
       return Response.json({ model, text });
     }
