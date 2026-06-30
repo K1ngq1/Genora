@@ -21,3 +21,18 @@ export type HomeTask = {
 export type HomeMessage =
   | { id: string; role: "user"; content: string }
   | { id: string; role: "task"; task: HomeTask };
+
+export type HomeChatSession = {
+  id: string;
+  title: string;
+  createdAt: string;
+  updatedAt: string;
+  messages: HomeMessage[];
+  mode: HomeMode;
+  model: string;
+  aspectRatio: CanvasRatio;
+  quality: CanvasResolution;
+  duration?: number;
+  motionPreset?: string;
+  outputs: string[];
+};
