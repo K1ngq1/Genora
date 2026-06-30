@@ -1,4 +1,4 @@
-import type { IconName, Kind, MotionPreset, Quality, Ratio } from "./workspace-types";
+import type { AgentTool, IconName, Kind, MotionPreset, Quality, Ratio } from "./workspace-types";
 
 export const RATIOS: Ratio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
 export const VIDEO_QUALITIES: Quality[] = ["480p", "720p", "1080p"];
@@ -90,3 +90,12 @@ export const KIND_META: Record<Kind, { title: string; subtitle: string; icon: Ic
   "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
   group: { title: "节点组", subtitle: "容器", icon: "grid" },
 };
+
+export const AGENT_TOOL_NAMES = new Set(["addNode", "updateNode", "removeNode", "generateNode", "addEdge"]);
+export const AGENT_CANVAS_TOOLS: AgentTool[] = [
+  { type: "function", function: { name: "addNode", description: "在画布上添加一个生成节点(text/image/video),可设置提示词和位置。", parameters: { type: "object", properties: { type: { type: "string", enum: ["text", "image", "video"], description: "节点类型" }, prompt: { type: "string", description: "生成提示词(可选)" }, position: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, description: "画布坐标(可选)" } }, required: ["type"] } } },
+  { type: "function", function: { name: "updateNode", description: "修改指定节点的字段。", parameters: { type: "object", properties: { nodeId: { type: "string" }, patch: { type: "object", properties: { prompt: { type: "string" }, title: { type: "string" }, ratio: { type: "string", enum: ["1:1", "4:3", "3:4", "16:9", "9:16"] } } } }, required: ["nodeId", "patch"] } } },
+  { type: "function", function: { name: "removeNode", description: "删除指定节点。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "generateNode", description: "触发指定节点的生成。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
+  { type: "function", function: { name: "addEdge", description: "连接两个节点,把 source 的输出作为 target 的输入。", parameters: { type: "object", properties: { sourceNodeId: { type: "string" }, targetNodeId: { type: "string" } }, required: ["sourceNodeId", "targetNodeId"] } } },
+];

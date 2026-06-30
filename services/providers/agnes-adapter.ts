@@ -137,14 +137,45 @@ export async function generateAgnesText(prompt: string) {
   return generateAgnesMessages([{ role: "user", content: prompt }]);
 }
 
-export async function generateAgnesMessages(messages: unknown[]) {
+type AgnesToolCall = {
+  id: string;
+  type: "function";
+  function: { name: string; arguments: string };
+};
+
+type AgnesAssistantMessage = {
+  content: string;
+  tool_calls?: AgnesToolCall[];
+  raw: unknown;
+};
+
+export async function generateAgnesMessagesWithTools(
+  messages: unknown[],
+  tools?: unknown[],
+): Promise<AgnesAssistantMessage> {
+  const payload: Record<string, unknown> = { model: "agnes-2.0-flash", messages };
+  if (tools && tools.length) {
+    payload.tools = tools;
+    payload.tool_choice = "auto";
+  }
   const result = await request(`${API_BASE}/chat/completions`, "text", {
     method: "POST",
-    body: JSON.stringify({ model: "agnes-2.0-flash", messages }),
+    body: JSON.stringify(payload),
   });
-  const content = result.choices?.[0]?.message?.content;
-  if (!content) throw new AppError("AGNES_EMPTY_TEXT", 502, JSON.stringify(result).slice(0, 300));
-  return String(content);
+  const message = result.choices?.[0]?.message;
+  if (!message) throw new AppError("AGNES_EMPTY_TEXT", 502, JSON.stringify(result).slice(0, 300));
+  const content = message.content ? String(message.content) : "";
+  const tool_calls = Array.isArray(message.tool_calls) ? (message.tool_calls as AgnesToolCall[]) : undefined;
+  if (!content && !tool_calls?.length) {
+    throw new AppError("AGNES_EMPTY_TEXT", 502, JSON.stringify(result).slice(0, 300));
+  }
+  return { content, tool_calls, raw: result };
+}
+
+export async function generateAgnesMessages(messages: unknown[]) {
+  const message = await generateAgnesMessagesWithTools(messages);
+  if (!message.content) throw new AppError("AGNES_EMPTY_TEXT", 502, "Agnes 返回空文本");
+  return message.content;
 }
 
 export async function generateAgnesImage(prompt: string, options: { aspectRatio?: string; quality?: string; size?: string } = {}) {

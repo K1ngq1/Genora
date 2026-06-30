@@ -1,5 +1,6 @@
 import type { Edge, Node } from "@xyflow/react";
 import type { CanvasRatio, CanvasResolution } from "@/lib/model-catalog";
+import type { VideoGenerationMode } from "@/lib/video-model-capabilities";
 
 export type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
 export type Ratio = CanvasRatio;
@@ -39,6 +40,7 @@ export type StoredWorkData = {
   ratio: Ratio;
   quality: Quality;
   model?: string;
+  videoMode?: VideoGenerationMode;
   motionPreset?: MotionPreset;
   duration: number;
   settingsOpen?: boolean;
@@ -49,6 +51,8 @@ export type StoredWorkData = {
   startFrameName?: string;
   endFrameUrl?: string;
   endFrameName?: string;
+  referenceFrameUrls?: string[];
+  referenceFrameNames?: string[];
   result?: string;
   taskId?: string;
   busy?: boolean;
@@ -88,6 +92,8 @@ export type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x
 export type CanvasClipboard = { nodes: StoredWorkNode[]; edges: Edge[] };
 export type AgentMessage = { role: "user" | "assistant"; content: string; error?: boolean };
 export type AgentAttachment = { id: string; kind: "image" | "video"; name: string; url: string; dataUrl?: string };
+export type AgentToolCall = { id: string; function: { name: string; arguments: string } };
+export type AgentTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
 export type CanvasProject = {
   id: string;
   name: string;

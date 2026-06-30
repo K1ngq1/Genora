@@ -23,3 +23,11 @@ export async function appendImageFromUrl(form: FormData, field: string, url: str
   if (mode === "append") form.append(field, blob, filename);
   else form.set(field, blob, filename);
 }
+
+export async function localUrlToDataUrl(url: string): Promise<string> {
+  if (url.startsWith("data:")) return url;
+  const response = await fetch(url);
+  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
+  const blob = await response.blob();
+  return fileToDataUrl(new File([blob], "agent-reference", { type: blob.type || "image/png" }));
+}

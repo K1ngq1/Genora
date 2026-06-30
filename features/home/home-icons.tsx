@@ -5,12 +5,16 @@ export type IconName =
   | "home"
   | "settings"
   | "nodes"
+  | "user"
+  | "logout"
   | "mic"
   | "image"
   | "upload"
   | "spark"
   | "send"
+  | "plus"
   | "box"
+  | "chevron-down"
   | "chevron-left"
   | "chevron-right";
 
@@ -31,6 +35,13 @@ export function Icon({ name }: { name: IconName }) {
         <path d="M9 7h6M12 10v5" />
       </>
     ),
+    user: (
+      <>
+        <circle cx="12" cy="8" r="4" />
+        <path d="M4 21a8 8 0 0 1 16 0" />
+      </>
+    ),
+    logout: <path d="M10 5H5v14h5M14 8l4 4-4 4M18 12H9" />,
     mic: (
       <>
         <rect x="9" y="3" width="6" height="11" rx="3" />
@@ -47,12 +58,14 @@ export function Icon({ name }: { name: IconName }) {
     upload: <path d="M12 16V4m0 0L8 8m4-4 4 4M5 16v3h14v-3" />,
     spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
     send: <path d="m22 2-7 20-4-9-9-4Z" />,
+    plus: <path d="M12 5v14M5 12h14" />,
     box: (
       <>
         <path d="m12 3 7 4v8l-7 4-7-4V7Z" />
         <path d="m5 7 7 4 7-4M12 11v8" />
       </>
     ),
+    "chevron-down": <path d="m6 9 6 6 6-6" />,
     "chevron-left": <path d="m15 18-6-6 6-6" />,
     "chevron-right": <path d="m9 18 6-6-6-6" />,
   };

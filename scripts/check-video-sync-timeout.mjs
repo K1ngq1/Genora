@@ -3,7 +3,7 @@ import { readFile } from "node:fs/promises";
 
 const sync = await readFile("lib/video-task-sync.ts", "utf8");
 const tasks = await readFile("lib/tasks.ts", "utf8");
-const page = await readFile("app/workspace/page.tsx", "utf8");
+const workspaceUtils = await readFile("features/workspace/workspace-utils.ts", "utf8");
 
 assert.match(sync, /status:\s*"timeout"/);
 assert.match(sync, /error:\s*"Video task timeout"/);
@@ -15,7 +15,7 @@ assert.doesNotMatch(sync, /const legacyTimeouts = await db\.task\.findMany/);
 assert.doesNotMatch(sync, /legacy-timeout-finalized/);
 assert.match(sync, /timedOutAt/);
 assert.match(tasks, /errorCode:\s*params\.errorCode\s*\?\?\s*task\.error/);
-assert.match(page, /TIMEOUT:\s*"已超时"/);
-assert.match(page, /task\.errorCode\s*===\s*"TIMEOUT"\s*\?\s*"已超时"/);
+assert.match(workspaceUtils, /errorCode\s*===\s*"TIMEOUT"\s*\?\s*"已超时"/);
+assert.match(workspaceUtils, /localizeError\(errorCode\s*\?\?\s*error\s*\?\?\s*"AGNES_REQUEST_TIMEOUT"\)/);
 
 console.log("Video sync timeout checks passed.");

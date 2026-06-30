@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/workspace/page.tsx", "utf8");
+const page = [
+  await readFile("app/workspace/page.tsx", "utf8"),
+  await readFile("features/workspace/workflow-node.tsx", "utf8"),
+  await readFile("features/workspace/workspace-constants.ts", "utf8"),
+  await readFile("features/workspace/workspace-utils.ts", "utf8"),
+].join("\n");
 const css = await readFile("app/workflow.css", "utf8");
 
 assert.match(page, /modelsForKind/);
@@ -16,8 +21,8 @@ assert.doesNotMatch(page, /现有模型/);
 assert.match(page, /预计/);
 assert.match(page, /Free/);
 assert.match(page, /model: kind === "image" \? "gpt-image-2" : kind === "video" \? "kling-v3-omni"/);
-assert.match(page, /ratio: kind === "video" \? "16:9" : "1:1"/);
-assert.match(page, /quality: kind === "video" \? "720p" : "1k"/);
+assert.match(page, /ratio: videoDefaults\?\.aspectRatio \?\? \(kind === "video" \? "16:9" : "1:1"\)/);
+assert.match(page, /quality: videoDefaults\?\.resolution \?\? \(kind === "video" \? "720p" : "1k"\)/);
 assert.match(css, /\.model-menu/);
 assert.match(css, /overflow-y:auto/);
 assert.match(css, /backdrop-filter:blur/);

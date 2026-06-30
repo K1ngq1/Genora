@@ -7,6 +7,8 @@ const assetRoute = await readFile("app/api/assets/[id]/route.ts", "utf8").catch(
 const projectRoute = await readFile("app/api/projects/[id]/route.ts", "utf8");
 const assets = await readFile("lib/assets.ts", "utf8");
 const page = await readFile("app/workspace/page.tsx", "utf8");
+const workflowNode = await readFile("features/workspace/workflow-node.tsx", "utf8");
+const workspaceSource = `${page}\n${workflowNode}`;
 const packageJson = await readFile("package.json", "utf8");
 const initDb = await readFile("scripts/init-db.mjs", "utf8");
 
@@ -21,8 +23,8 @@ assert.match(assetRoute, /asset\.byteSize > 0 \? asset\.byteSize : file\.length/
 assert.match(assets, /repairLegacyAssetUrls/);
 assert.match(projectRoute, /repairLegacyAssetUrls/);
 assert.match(page, /uploadAsset:/);
-assert.match(page, /data\.uploadAsset\(file\)/);
-assert.doesNotMatch(page.slice(page.indexOf("function WorkflowNode"), page.indexOf("const nodeTypes")), /URL\.createObjectURL\(file\)/);
+assert.match(workspaceSource, /data\.uploadAsset\(file\)/);
+assert.doesNotMatch(workflowNode.slice(workflowNode.indexOf("function WorkflowNode"), workflowNode.indexOf("export const nodeTypes")), /URL\.createObjectURL\(file\)/);
 assert.match(packageJson, /check-persistent-assets\.mjs/);
 assert.match(initDb, /CREATE TABLE IF NOT EXISTS "Asset"/);
 

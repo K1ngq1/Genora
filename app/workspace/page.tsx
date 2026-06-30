@@ -25,18 +25,22 @@ import {
   getModelDefinition,
   normalizeModelOptions,
 } from "@/lib/model-catalog";
+import { sanitizeVideoOptionsForModel } from "@/lib/video-model-capabilities";
 import { getVideoDimensions } from "@/lib/generation-quality";
 import {
+  AGENT_CANVAS_TOOLS,
+  AGENT_TOOL_NAMES,
   KIND_META,
   MAX_VIDEO_FRAMES,
   MOTION_PRESETS,
+  RATIOS,
   SAFE_VIDEO_MAX_FRAMES,
   SAFE_VIDEO_QUALITY,
   SUGGESTIONS,
   TEMP_USER_NAME,
   VIDEO_FRAME_RATE,
 } from "@/features/workspace/workspace-constants";
-import { appendImageFromUrl, fileToDataUrl, materializeReferenceUrl } from "@/features/workspace/workspace-client-utils";
+import { appendImageFromUrl, fileToDataUrl, localUrlToDataUrl, materializeReferenceUrl } from "@/features/workspace/workspace-client-utils";
 import { Icon } from "@/features/workspace/workspace-icon";
 import { nodeTypes } from "@/features/workspace/workflow-node";
 import {
@@ -51,6 +55,7 @@ import {
 import type {
   AgentAttachment,
   AgentMessage,
+  AgentToolCall,
   CanvasClipboard,
   CanvasProject,
   DeletedCanvasEntry,
@@ -60,6 +65,7 @@ import type {
   MaterialLibraryItem,
   MenuState,
   NodeContextMenuState,
+  Ratio,
   SaveStatus,
   StoredWorkData,
   ThemeTone,
@@ -109,6 +115,7 @@ function WorkflowCanvas() {
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
   const [agentAttachments, setAgentAttachments] = useState<AgentAttachment[]>([]);
+  const [agentCanUndo, setAgentCanUndo] = useState(false);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [project, setProject] = useState<CanvasProject>();
@@ -139,6 +146,8 @@ function WorkflowCanvas() {
   const dirtyRef = useRef(false);
   const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
   const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
+  const agentSnapshotRef = useRef<{ nodes: WorkNode[]; edges: Edge[] } | null>(null);
+  const executedToolCallIdsRef = useRef<Set<string>>(new Set());
   const generateRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
   const imagePicker = useRef<HTMLInputElement>(null);
@@ -580,7 +589,7 @@ function WorkflowCanvas() {
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "image" && !configRef.current.apimartImageConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_IMAGE。" });
     if (modelDefinition?.provider === "apimart" && modelDefinition.keyScope !== "dev" && node.data.kind === "video" && !configRef.current.apimartVideoConfigured) return update(id, { error: "请先在 .env 中配置 APIMART_KEY_VIDEO。" });
     if (modelDefinition?.provider === "agnes" && !configRef.current.agnesConfigured) return update(id, { error: "请先在 .env 中配置 Agnes API Key。" });
-    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
+    if (modelDefinition?.provider === "agnes" && node.data.kind === "video" && (node.data.startFrameUrl || node.data.endFrameUrl || node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))) && !configRef.current.agnesPublicImageStorageConfigured) {
       return update(id, { error: "请先在 .env 中配置 SUPABASE_SERVICE_ROLE_KEY。" });
     }
 
@@ -609,11 +618,20 @@ function WorkflowCanvas() {
         });
       } else {
         const model = modelDefinition ?? getModelDefinition("agnes-video-v2.0");
-        const requestedQuality = node.data.quality;
-        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((node.data.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
+        const normalizedVideoOptions = sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || upstream.some((item) => item.data.url && !item.data.kind.includes("video"))),
+        });
+        const requestedQuality = normalizedVideoOptions.resolution;
+        const requestedFrames = Math.min(MAX_VIDEO_FRAMES, Math.max(25, Math.round((normalizedVideoOptions.duration * VIDEO_FRAME_RATE - 1) / 8) * 8 + 1));
         const safeQuality = model.provider === "agnes" ? (requestedQuality === "720p" ? requestedQuality : SAFE_VIDEO_QUALITY) : requestedQuality;
         const safeFrames = model.provider === "agnes" ? Math.min(SAFE_VIDEO_MAX_FRAMES, requestedFrames) : requestedFrames;
-        const { width, height } = getVideoDimensions(node.data.ratio, safeQuality);
+        const { width, height } = getVideoDimensions(normalizedVideoOptions.aspectRatio, safeQuality);
         if (model.provider === "agnes" && (requestedQuality !== safeQuality || requestedFrames !== safeFrames)) {
           update(id, {
             result: `已按稳定生成策略提交：${safeQuality.toUpperCase()} · ${safeFrames} 帧。高画质或长时长容易触发 Agnes 上游显存不足。`,
@@ -622,11 +640,11 @@ function WorkflowCanvas() {
         const form = new FormData();
         form.set("prompt", prompt);
         form.set("model", model.id);
-        form.set("ratio", node.data.ratio);
-        form.set("aspectRatio", node.data.ratio);
-        form.set("resolution", node.data.quality);
-        form.set("quality", node.data.quality);
-        form.set("duration", String(node.data.duration));
+        form.set("ratio", normalizedVideoOptions.aspectRatio);
+        form.set("aspectRatio", normalizedVideoOptions.aspectRatio);
+        form.set("resolution", normalizedVideoOptions.resolution);
+        form.set("quality", normalizedVideoOptions.resolution);
+        form.set("duration", String(normalizedVideoOptions.duration));
         if (node.data.negativePrompt) form.set("negativePrompt", node.data.negativePrompt);
         form.set("width", String(width));
         form.set("height", String(height));
@@ -643,6 +661,10 @@ function WorkflowCanvas() {
         }
         if (node.data.endFrameUrl) {
           await appendImageFromUrl(form, "endFrame", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png");
+        }
+        const nodeReferenceUrls = node.data.referenceFrameUrls ?? [];
+        for (const [index, url] of nodeReferenceUrls.entries()) {
+          await appendImageFromUrl(form, "referenceImages", url, node.data.referenceFrameNames?.[index] || `reference-${index + 1}.png`, "append");
         }
         for (const [index, source] of imageSources.entries()) {
           if (source.data.url) {
@@ -832,9 +854,10 @@ function WorkflowCanvas() {
       } catch (error) {
         setSaveStatus("error");
         window.alert(error instanceof Error ? error.message : "上传素材失败");
-        return;
+        return undefined;
       }
     }
+    const videoDefaults = kind === "video" ? sanitizeVideoOptionsForModel("kling-v3-omni", {}) : undefined;
     markUnsaved();
     setNodes((current) => [...current, {
       id,
@@ -844,11 +867,12 @@ function WorkflowCanvas() {
         kind,
         title: file?.name ?? KIND_META[kind].title,
         prompt: "",
-        ratio: kind === "video" ? "16:9" : "1:1",
-        quality: kind === "video" ? "720p" : "1k",
+        ratio: videoDefaults?.aspectRatio ?? (kind === "video" ? "16:9" : "1:1"),
+        quality: videoDefaults?.resolution ?? (kind === "video" ? "720p" : "1k"),
         model: kind === "image" ? "gpt-image-2" : kind === "video" ? "kling-v3-omni" : undefined,
+        videoMode: videoDefaults?.mode,
         motionPreset: kind === "video" ? "auto" : undefined,
-        duration: 5,
+        duration: videoDefaults?.duration ?? 5,
         negativePrompt: "",
         url: persistentUrl,
         uploadAsset: (nextFile) => uploadAssetRef.current(nextFile),
@@ -859,6 +883,7 @@ function WorkflowCanvas() {
     }]);
     if (sourceId) fanOutGroupConnection(sourceId, id);
     setMenu(undefined);
+    return id;
   }, [fanOutGroupConnection, generate, markUnsaved, reactFlow, remove, setNodes, update, uploadCanvasFile]);
 
   const addLibraryItemToCanvas = useCallback((item: MaterialLibraryItem) => {
@@ -1072,17 +1097,29 @@ function WorkflowCanvas() {
       if (cancelled) return;
 
       const hydratedNodes = loaded.canvasData.nodes.map((node) => {
-        const model = node.data.kind === "image"
-          ? getModelDefinition(node.data.model ?? "agnes-image-2.1-flash")
+        const model = node.data.kind === "image" || node.data.kind === "video"
+          ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "kling-v3-omni"))
           : undefined;
-        const quality = model && !model.resolutions.includes(node.data.quality)
+        const videoOptions = node.data.kind === "video" && model ? sanitizeVideoOptionsForModel(model.id, {
+          mode: node.data.videoMode,
+          aspectRatio: node.data.ratio,
+          resolution: node.data.quality,
+          duration: node.data.duration,
+          hasStartFrame: Boolean(node.data.startFrameUrl),
+          hasEndFrame: Boolean(node.data.endFrameUrl),
+          hasImageInput: Boolean(node.data.referenceFrameUrls?.length || node.data.hasImageInput),
+        }) : undefined;
+        const quality = model && !videoOptions && !model.resolutions.includes(node.data.quality)
           ? model.defaultResolution
           : node.data.quality;
         return {
           ...node,
           data: {
             ...node.data,
-            quality,
+            ratio: videoOptions?.aspectRatio ?? node.data.ratio,
+            quality: videoOptions?.resolution ?? quality,
+            duration: videoOptions?.duration ?? node.data.duration,
+            videoMode: videoOptions?.mode ?? node.data.videoMode,
             busy: false,
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
@@ -1102,11 +1139,16 @@ function WorkflowCanvas() {
         } catch {
           modelId = fallbackModel;
         }
-        const options = normalizeModelOptions(modelId, {
+        const imageOptions = normalizeModelOptions(modelId, {
           ratio: launchKind === "video" ? "16:9" : "1:1",
           resolution: launchKind === "video" ? "720p" : "1k",
           duration: 5,
         });
+        const videoOptions = launchKind === "video" ? sanitizeVideoOptionsForModel(modelId, {
+          aspectRatio: "16:9",
+          resolution: "720p",
+          duration: 5,
+        }) : undefined;
         launchNodes = [{
           id: randomUuid(),
           type: "work",
@@ -1115,11 +1157,12 @@ function WorkflowCanvas() {
             kind: launchKind,
             title: KIND_META[launchKind].title,
             prompt: launchPrompt,
-            ratio: options.ratio,
-            quality: options.resolution,
+            ratio: videoOptions?.aspectRatio ?? imageOptions.ratio,
+            quality: videoOptions?.resolution ?? imageOptions.resolution,
             model: modelId,
+            videoMode: videoOptions?.mode,
             motionPreset: launchKind === "video" ? "auto" : undefined,
-            duration: launchKind === "video" ? options.duration : 0,
+            duration: launchKind === "video" ? videoOptions?.duration ?? imageOptions.duration : 0,
             negativePrompt: "",
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
@@ -1192,6 +1235,86 @@ function WorkflowCanvas() {
     return () => window.removeEventListener("beforeunload", onBeforeUnload);
   }, []);
 
+  const undoAgentActions = useCallback(() => {
+    const snap = agentSnapshotRef.current;
+    if (!snap) return;
+    agentSnapshotRef.current = null;
+    setAgentCanUndo(false);
+    markUnsaved();
+    setNodes(snap.nodes);
+    setEdges(snap.edges);
+    setSelectedIds([]);
+  }, [markUnsaved, setEdges, setNodes]);
+
+  const dispatchAgentToolCalls = useCallback(async (toolCalls: AgentToolCall[]): Promise<string[]> => {
+    const log: string[] = [];
+    const validNodeId = (id: unknown): string | null => {
+      if (typeof id !== "string" || !id) return null;
+      return nodesRef.current.some((node) => node.id === id) ? id : null;
+    };
+    for (const call of toolCalls) {
+      const fn = call.function;
+      const name = fn?.name;
+      if (!name || !AGENT_TOOL_NAMES.has(name)) {
+        log.push("忽略了无法识别的指令");
+        continue;
+      }
+      if (call.id && executedToolCallIdsRef.current.has(call.id)) {
+        log.push("这条已经处理过了");
+        continue;
+      }
+      if (call.id) executedToolCallIdsRef.current.add(call.id);
+      let args: Record<string, unknown> = {};
+      try {
+        args = JSON.parse(fn?.arguments || "{}");
+      } catch {
+        log.push("指令参数有误，已跳过");
+        continue;
+      }
+      try {
+        if (name === "addNode") {
+          const type = ["text", "image", "video"].includes(args.type as string) ? (args.type as Kind) : null;
+          if (!type) { log.push("节点类型无效，已跳过"); continue; }
+          const pos = args.position as { x?: number; y?: number } | undefined;
+          const position = pos && typeof pos.x === "number" && typeof pos.y === "number" ? { x: pos.x, y: pos.y } : undefined;
+          const newId = await addNode(type, position);
+          if (!newId) { log.push("添加节点失败"); continue; }
+          if (typeof args.prompt === "string" && args.prompt.trim()) update(newId, { prompt: args.prompt });
+          log.push(`已在画布中生成${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
+        } else if (name === "updateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
+          const patchSrc = args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
+          const patch: Partial<StoredWorkData> = {};
+          if (typeof patchSrc.prompt === "string") patch.prompt = patchSrc.prompt;
+          if (typeof patchSrc.title === "string") patch.title = patchSrc.title;
+          if (typeof patchSrc.ratio === "string" && RATIOS.includes(patchSrc.ratio as Ratio)) patch.ratio = patchSrc.ratio as Ratio;
+          if (Object.keys(patch).length) { update(id, patch); log.push("已更新节点"); }
+          else log.push("节点无需更新");
+        } else if (name === "removeNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
+          remove(id);
+          log.push("已删除节点");
+        } else if (name === "generateNode") {
+          const id = validNodeId(args.nodeId);
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
+          generate(id);
+          log.push("已开始生成");
+        } else if (name === "addEdge") {
+          const from = validNodeId(args.sourceNodeId);
+          const to = validNodeId(args.targetNodeId);
+          if (!from || !to) { log.push("找不到节点，已跳过"); continue; }
+          setEdges((current) => addEdge({ id: `${from}-${to}-${randomUuid()}`, source: from, target: to, animated: true }, current));
+          log.push("已连接节点");
+        }
+      } catch (error) {
+        log.push(`执行出错了：${error instanceof Error ? error.message : "未知错误"}`);
+      }
+    }
+    return log;
+  }, [addNode, generate, remove, setEdges, update]);
+
   const sendAgent = useCallback(async () => {
     const content = agentInput.trim();
     if (!content || agentBusy) return;
@@ -1211,39 +1334,62 @@ function WorkflowCanvas() {
       const attachmentText = attachments.length
         ? attachments.map((item, index) => `${index + 1}. ${item.kind === "image" ? "图片" : "视频"}附件：${item.name}`).join("\n")
         : "无";
+      const selectedImageNodes = nodesRef.current
+        .filter((node) => node.selected && (node.data.kind === "image" || node.data.kind === "media-image") && node.data.url)
+        .slice(0, 4);
+      const canvasImageParts: { type: "image_url"; image_url: { url: string } }[] = [];
+      for (const node of selectedImageNodes) {
+        try {
+          canvasImageParts.push({ type: "image_url", image_url: { url: await localUrlToDataUrl(node.data.url as string) } });
+        } catch {
+          // Skip unreadable local references.
+        }
+      }
       const textPart = [
-        "你是 Genora Agent。请读取当前画布摘要、对话附件和历史上下文，回答最后一个用户问题。",
+        "你是 Genora Agent，运行在画布旁。除了回答问题，你还可以调用工具直接操纵画布：addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时，请调用对应工具，并用一句话说明你做了什么。",
         "",
         "【画布内容】",
         canvasSummary(),
         "",
         "【对话附件】",
         attachmentText,
+        ...(selectedImageNodes.length ? ["", "【画布视觉】已附上选中的图片，你可以直接看图来分析画面、优化提示词或生成创意。"] : []),
         "",
         "【上下文】",
         history,
       ].join("\n");
-      const imageParts = attachments
-        .filter((item) => item.kind === "image" && item.dataUrl)
-        .map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } }));
+      const imageParts = [
+        ...attachments.filter((item) => item.kind === "image" && item.dataUrl).map((item) => ({ type: "image_url", image_url: { url: item.dataUrl } })),
+        ...canvasImageParts,
+      ];
       const response = await fetch("/api/agent/generate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           model: "agnes-2.0-flash",
           prompt: textPart,
+          tools: AGENT_CANVAS_TOOLS,
           messages: [{ role: "user", content: [{ type: "text", text: textPart }, ...imageParts] }],
         }),
       });
       const body = await readJson(response);
       if (!response.ok) throw new Error(responseError(body, "UNKNOWN_ERROR"));
-      setAgentMessages((current) => [...current, { role: "assistant", content: body.text ?? "我已经收到。" }]);
+      const toolCalls = Array.isArray(body.tool_calls) ? (body.tool_calls as AgentToolCall[]) : [];
+      let actionLog: string[] = [];
+      if (toolCalls.length) {
+        agentSnapshotRef.current = { nodes: [...nodesRef.current], edges: [...edgesRef.current] };
+        setAgentCanUndo(true);
+        actionLog = await dispatchAgentToolCalls(toolCalls);
+      }
+      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "好的，已经帮你处理好。" : "我已经收到。");
+      const footer = actionLog.length ? `\n${actionLog.join("；")}` : "";
+      setAgentMessages((current) => [...current, { role: "assistant", content: baseText + footer }]);
     } catch (error) {
       setAgentMessages((current) => [...current, { role: "assistant", content: error instanceof Error ? localizeError(error.message) : "Agent 调用失败", error: true }]);
     } finally {
       setAgentBusy(false);
     }
-  }, [agentBusy, agentInput, canvasSummary]);
+  }, [agentBusy, agentInput, canvasSummary, dispatchAgentToolCalls]);
 
   const resetAgent = useCallback(() => {
     setAgentInput("");
@@ -1514,7 +1660,7 @@ function WorkflowCanvas() {
       <button className="agent-fab" aria-label="打开 Genora Agent" onClick={() => setAgentOpen((current) => !current)}><img src="/assets/genora-logo.png" alt="" /></button>
       {agentOpen && (
         <aside className={`agent-panel ${agentHasConversation ? "chatting" : ""}`}>
-          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button><button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
+          <header><button aria-label="新建对话" onClick={resetAgent}><Icon name="plus" /></button><button aria-label="换一组灵感" onClick={inspire}><Icon name="bulb" /></button>{agentCanUndo && <button aria-label="撤销 Agent 操作" title="撤销 Agent 操作" onClick={undoAgentActions}><Icon name="history" /></button>}<button aria-label="关闭 Agent" onClick={() => setAgentOpen(false)}><Icon name="close" /></button></header>
           {!agentHasConversation && (
             <section className="agent-hero">
               <p className="agent-hi"><img src="/assets/genora-logo.png" alt="" />Hi! {TEMP_USER_NAME}</p>

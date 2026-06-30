@@ -1,12 +1,14 @@
 import { readFile } from "node:fs/promises";
 
 const page = await readFile("app/workspace/page.tsx", "utf8");
+const utils = await readFile("features/workspace/workspace-utils.ts", "utf8");
+const workspaceSource = `${page}\n${utils}`;
 
 const checks = [
   ["loaded task reconciliation", page.includes("reconcileLoadedTaskNodes")],
   ["server task lookup", page.includes("fetch(`/api/tasks/${node.data.taskId}`, { cache: \"no-store\" })")],
-  ["completed result recovery", page.includes('status === "completed"') && page.includes("url: task.outputUrl")],
-  ["stale error clearing", page.includes('error: ""') && page.includes("canResume: false")],
+  ["completed result recovery", workspaceSource.includes('status === "completed"') && workspaceSource.includes("url: task.outputUrl")],
+  ["stale error clearing", workspaceSource.includes('error: ""') && workspaceSource.includes("canResume: false")],
 ];
 
 const failed = checks.filter(([, passed]) => !passed);
