@@ -39,7 +39,7 @@ assert.equal(isQualityRelatedError("moderation rejected"), false);
 
 const imageRoute = await readFile("app/api/images/generate/route.ts", "utf8");
 const videoRoute = await readFile("app/api/videos/generate/route.ts", "utf8");
-const agnes = await readFile("lib/agnes.ts", "utf8");
+const agnes = await readFile("services/providers/agnes-adapter.ts", "utf8");
 const apimartSync = await readFile("lib/apimart-task-sync.ts", "utf8");
 assert.match(imageRoute, /body\.aspectRatio \?\? body\.ratio/);
 assert.match(imageRoute, /body\.quality \?\? body\.resolution/);

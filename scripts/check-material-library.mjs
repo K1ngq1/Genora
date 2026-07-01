@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
 
-const [projects, page, packageJson] = await Promise.all([
+const [projects, page, types, packageJson] = await Promise.all([
   readFile("lib/projects.ts", "utf8"),
   readFile("app/workspace/page.tsx", "utf8"),
+  readFile("features/workspace/workspace-types.ts", "utf8"),
   readFile("package.json", "utf8"),
 ]);
 
@@ -11,7 +12,7 @@ function assert(condition, message) {
 }
 
 assert(projects.includes("libraryItems"), "Project canvas data should persist material library items");
-assert(page.includes("type MaterialLibraryItem"), "Workspace should define material library item shape");
+assert(types.includes("type MaterialLibraryItem"), "Workspace should define material library item shape");
 assert(page.includes("materialLibrary"), "Workspace should keep material library state");
 assert(page.includes("material-library-panel"), "Workspace should render a material library panel");
 assert(page.includes("addUploadedFileToLibrary"), "Uploaded files should be addable to the material library");

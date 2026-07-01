@@ -35,6 +35,7 @@ storage/*
 
 # Tool artifacts
 .agents
+.codex/config.toml
 .codex-*/
 .superpowers/
 .netlify/

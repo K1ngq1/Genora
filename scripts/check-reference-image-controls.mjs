@@ -1,6 +1,9 @@
 import { readFile } from "node:fs/promises";
 
-const page = await readFile("app/workspace/page.tsx", "utf8");
+const page = [
+  await readFile("app/workspace/page.tsx", "utf8"),
+  await readFile("features/workspace/workflow-node.tsx", "utf8"),
+].join("\n");
 const css = await readFile("app/workflow.css", "utf8");
 
 const checks = [

@@ -1,6 +1,8 @@
 import fs from "node:fs";
 
 const page = fs.readFileSync("app/workspace/page.tsx", "utf8");
+const workflowNode = fs.readFileSync("features/workspace/workflow-node.tsx", "utf8");
+const workspaceSource = `${page}\n${workflowNode}`;
 const css = fs.readFileSync("app/workflow.css", "utf8");
 
 function assert(condition, message) {
@@ -13,12 +15,12 @@ assert(page.includes('href="/"') && page.includes('href="/projects"'), "home men
 assert(page.includes("selectionSuppressed"), "selected nodes should be able to suppress prompt panels");
 assert(page.includes("selectionAction"), "selection action overlay should be computed");
 assert(page.includes("selection-action-pop"), "selection action overlay should render above the selection");
-assert(page.includes('className="model-trigger model-trigger-logo"'), "model trigger should show model logo plus model name");
-assert(page.includes("selectedModel.label"), "model trigger should keep the selected model name visible");
-assert(page.includes('className="node-result-card video-generating"'), "video generation card should keep the icon and use a dedicated generating UI");
+assert(workspaceSource.includes('className="model-trigger model-trigger-logo"'), "model trigger should show model logo plus model name");
+assert(workspaceSource.includes("selectedModel.label"), "model trigger should keep the selected model name visible");
+assert(workspaceSource.includes('className="node-result-card video-generating"'), "video generation card should keep the icon and use a dedicated generating UI");
 assert(page.includes("selection-library-button"), "selection overlay should include save-to-library action");
 assert(page.includes("selection-group-button"), "selection overlay should include group action");
-assert(page.includes('className="generate-button-submit"'), "prompt submit should use the compact credit plus arrow button");
+assert(workspaceSource.includes('className="generate-button-submit"'), "prompt submit should use the compact credit plus arrow button");
 
 assert(css.includes(".canvas-node.selection-suppressed .prompt-pop"), "prompt panel should be hidden during box selection");
 assert(css.includes(".selection-action-pop"), "selection action overlay should be styled");

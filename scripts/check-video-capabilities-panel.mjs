@@ -2,7 +2,11 @@ import { readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
 const capability = readFileSync("lib/video-model-capabilities.ts", "utf8");
-const workspace = readFileSync("app/workspace/page.tsx", "utf8");
+const workspace = [
+  readFileSync("app/workspace/page.tsx", "utf8"),
+  readFileSync("features/workspace/workflow-node.tsx", "utf8"),
+  readFileSync("features/workspace/workspace-types.ts", "utf8"),
+].join("\n");
 const css = readFileSync("app/workflow.css", "utf8");
 
 assert.match(capability, /videoModelCapabilities/, "video capability map should be centralized");

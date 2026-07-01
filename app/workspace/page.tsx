@@ -1,1088 +1,77 @@
 "use client";
 
-import { Suspense, memo, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties, type DragEvent } from "react";
+import { Suspense, useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import {
   addEdge,
   Background,
   BackgroundVariant,
-  Handle,
   MiniMap,
   Panel,
-  Position,
   ReactFlow,
   ReactFlowProvider,
   SelectionMode,
   useEdgesState,
   useNodesState,
   useReactFlow,
-  useUpdateNodeInternals,
   useViewport,
   type Connection,
   type Edge,
-  type Node,
-  type NodeProps,
   type OnConnectEnd,
 } from "@xyflow/react";
 import { VIDEO_POLL_INTERVAL_MS, VIDEO_POLL_MAX_ATTEMPTS } from "@/lib/video-polling";
 import {
-  estimateCredits,
   getModelDefinition,
-  modelCapabilityLabel,
-  modelsForKind,
   normalizeModelOptions,
-  type CanvasRatio,
-  type CanvasResolution,
 } from "@/lib/model-catalog";
-import { getProviderLogo } from "@/lib/provider-logo-map";
+import { sanitizeVideoOptionsForModel } from "@/lib/video-model-capabilities";
+import { getVideoDimensions } from "@/lib/generation-quality";
 import {
-  getVideoModelCapabilities,
-  sanitizeVideoOptionsForModel,
-  videoModeLabels,
-  type VideoGenerationMode,
-} from "@/lib/video-model-capabilities";
-import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-media-layout";
-import { getImageSize, getVideoDimensions } from "@/lib/generation-quality";
-
-type Kind = "text" | "image" | "video" | "storyboard" | "media-image" | "media-video" | "group";
-type Ratio = CanvasRatio;
-type Quality = CanvasResolution;
-type MotionPreset = "auto" | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "orbit-left" | "orbit-right" | "low-angle" | "top-down";
-type ThemeTone = "dark" | "light";
-type StoryboardShot = {
-  id: string;
-  shotNumber: string;
-  visual: string;
-  cameraMotion: string;
-  duration: number;
-  videoPrompt: string;
-};
-type IconName =
-  | "text"
-  | "image"
-  | "video"
-  | "spark"
-  | "plus"
-  | "close"
-  | "upload"
-  | "history"
-  | "send"
-  | "map"
-  | "grid"
-  | "fit"
-  | "settings"
-  | "bulb"
-  | "camera"
-  | "stop"
-  | "arrow-up"
-  | "folder"
-  | "chat"
-  | "layers"
-  | "ellipsis"
-  | "chevron"
-  | "copy"
-  | "trash"
-  | "user"
-  | "logout"
-  | "model-wave"
-  | "model-bars"
-  | "model-google"
-  | "model-openai"
-  | "model-kling"
-  | "model-horse"
-  | "model-agnes"
-  | "model-xai";
-
-type WorkData = {
-  kind: Kind;
-  title: string;
-  prompt: string;
-  ratio: Ratio;
-  quality: Quality;
-  model?: string;
-  videoMode?: VideoGenerationMode;
-  motionPreset?: MotionPreset;
-  duration: number;
-  settingsOpen?: boolean;
-  negativePrompt?: string;
-  negativePromptOpen?: boolean;
-  url?: string;
-  startFrameUrl?: string;
-  startFrameName?: string;
-  endFrameUrl?: string;
-  endFrameName?: string;
-  referenceFrameUrls?: string[];
-  referenceFrameNames?: string[];
-  storyboardShots?: StoryboardShot[];
-  sourceStoryboardShotId?: string;
-  storyboardGenerating?: boolean;
-  result?: string;
-  taskId?: string;
-  busy?: boolean;
-  error?: string;
-  canResume?: boolean;
-  lastProviderStatus?: string | null;
-  selectionSuppressed?: boolean;
-  hasImageInput?: boolean;
-  actualCredits?: number | null;
-  uploadAsset: (file: File) => Promise<string>;
-  update: (id: string, patch: Partial<WorkData>) => void;
-  remove: (id: string) => void;
-  generate: (id: string) => void;
-  generateStoryboard: (id: string) => void;
-};
-
-type WorkNode = Node<WorkData, "work">;
-type DeletedCanvasEntry = { nodes: WorkNode[]; edges: Edge[] };
-type StoredWorkData = Omit<WorkData, "uploadAsset" | "update" | "remove" | "generate">;
-type StoredWorkNode = Omit<WorkNode, "data"> & { data: StoredWorkData };
-type MaterialLibraryItem = {
-  id: string;
-  name: string;
-  kind: "image" | "video" | "node" | "group" | "folder";
-  folderId?: string | null;
-  url?: string;
-  nodes?: StoredWorkNode[];
-  edges?: Edge[];
-  createdAt: string;
-};
-type LibraryTreeItem = { item: MaterialLibraryItem; depth: number };
-type LibraryMenuState = { id: string; screen: { x: number; y: number }; mode: "actions" | "move" };
-type MenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; sourceId?: string };
-type NodeContextMenuState = { screen: { x: number; y: number }; flow: { x: number; y: number }; nodeId: string };
-type CanvasClipboard = { nodes: StoredWorkNode[]; edges: Edge[] };
-type AgentMessage = { role: "user" | "assistant"; content: string; error?: boolean };
-type AgentAttachment = { id: string; kind: "image" | "video"; name: string; url: string; dataUrl?: string };
-type AgentToolCall = { id: string; function: { name: string; arguments: string } };
-type AgentTool = { type: "function"; function: { name: string; description: string; parameters: Record<string, unknown> } };
-
-const AGENT_TOOL_NAMES = new Set(["addNode", "updateNode", "removeNode", "generateNode", "addEdge"]);
-const AGENT_CANVAS_TOOLS: AgentTool[] = [
-  { type: "function", function: { name: "addNode", description: "在画布上添加一个生成节点(text/image/video),可设置提示词和位置。", parameters: { type: "object", properties: { type: { type: "string", enum: ["text", "image", "video"], description: "节点类型" }, prompt: { type: "string", description: "生成提示词(可选)" }, position: { type: "object", properties: { x: { type: "number" }, y: { type: "number" } }, description: "画布坐标(可选)" } }, required: ["type"] } } },
-  { type: "function", function: { name: "updateNode", description: "修改指定节点的字段。", parameters: { type: "object", properties: { nodeId: { type: "string" }, patch: { type: "object", properties: { prompt: { type: "string" }, title: { type: "string" }, ratio: { type: "string", enum: ["1:1", "4:3", "3:4", "16:9", "9:16"] } } } }, required: ["nodeId", "patch"] } } },
-  { type: "function", function: { name: "removeNode", description: "删除指定节点。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
-  { type: "function", function: { name: "generateNode", description: "触发指定节点的生成。", parameters: { type: "object", properties: { nodeId: { type: "string" } }, required: ["nodeId"] } } },
-  { type: "function", function: { name: "addEdge", description: "连接两个节点,把 source 的输出作为 target 的输入。", parameters: { type: "object", properties: { sourceNodeId: { type: "string" }, targetNodeId: { type: "string" } }, required: ["sourceNodeId", "targetNodeId"] } } },
-];
-type CanvasProject = {
-  id: string;
-  name: string;
-  requiresRename: boolean;
-  canvasData: {
-    nodes: StoredWorkNode[];
-    edges: Edge[];
-    viewport: { x: number; y: number; zoom: number };
-    libraryItems: MaterialLibraryItem[];
-  };
-};
-type SaveStatus = "loading" | "unsaved" | "saving" | "saved" | "error";
-
-const RATIOS: Ratio[] = ["1:1", "4:3", "3:4", "16:9", "9:16"];
-const VIDEO_QUALITIES: Quality[] = ["480p", "720p", "1080p"];
-const VIDEO_FRAME_RATE = 24;
-const MAX_VIDEO_FRAMES = 441;
-const SAFE_VIDEO_MAX_FRAMES = 121;
-const SAFE_VIDEO_QUALITY: Quality = "1k";
-const TEMP_USER_NAME = "Genora";
-const MOTION_PRESETS: Array<{ id: MotionPreset; label: string; prompt: string }> = [
-  { id: "auto", label: "自动镜头", prompt: "Use natural cinematic motion that best fits the scene." },
-  { id: "push-in", label: "缓慢推进", prompt: "Camera slowly pushes in toward the subject." },
-  { id: "pull-out", label: "缓慢拉远", prompt: "Camera slowly pulls back to reveal more of the scene." },
-  { id: "pan-left", label: "向左横移", prompt: "Camera pans left smoothly while keeping the subject stable." },
-  { id: "pan-right", label: "向右横移", prompt: "Camera pans right smoothly while keeping the subject stable." },
-  { id: "tilt-up", label: "仰拍上移", prompt: "Camera tilts upward gently, adding vertical scene motion." },
-  { id: "orbit-left", label: "左侧环绕", prompt: "Camera orbits slightly to the left around the subject." },
-  { id: "orbit-right", label: "右侧环绕", prompt: "Camera orbits slightly to the right around the subject." },
-  { id: "low-angle", label: "低机位", prompt: "Use a subtle low-angle cinematic perspective." },
-  { id: "top-down", label: "俯视角", prompt: "Use a gentle top-down or high-angle camera perspective." },
-];
-const ERROR_TEXT_ZH: Record<string, string> = {
-  UNKNOWN_ERROR: "发生未知错误，请稍后重试。",
-  INVALID_JSON_RESPONSE: "服务返回了非 JSON 内容，已阻止乱码直接显示。",
-  MISSING_OPENAI_API_KEY: "尚未配置 OPENAI_API_KEY，请在 .env 中填写后重启服务。",
-  MISSING_AGNES_API_KEY: "尚未配置 Agnes API Key，请在 .env 中配置对应服务的 Key 后重启。",
-  MISSING_PUBLIC_IMAGE_STORAGE: "尚未配置 SUPABASE_SERVICE_ROLE_KEY，Agnes 无法读取本地上传图片。",
-  PUBLIC_IMAGE_UPLOAD_FAILED: "图片上传到 Supabase Storage 失败，请检查 Bucket 和服务端配置。",
-  INVALID_PUBLIC_IMAGE_URL: "上传后的图片地址不是安全的公网 HTTPS URL。",
-  PUBLIC_IMAGE_PREFLIGHT_FAILED: "公网图片预检失败，Agnes 任务尚未提交。",
-  MISSING_APIMART_IMAGE_KEY: "尚未配置 APIMART_KEY_IMAGE，请在 .env 中填写后重启服务。",
-  MISSING_APIMART_VIDEO_KEY: "尚未配置 APIMART_KEY_VIDEO，请在 .env 中填写后重启服务。",
-  MISSING_APIMART_DEV_KEY: "尚未配置 APIMART_KEY_DEV，请在 .env 中填写后重启服务。",
-  APIMART_INSUFFICIENT_CREDITS: "APIMart 余额不足，请充值后重试。",
-  APIMART_RATE_LIMIT: "APIMart 请求过于频繁，请稍后重试。",
-  APIMART_UPSTREAM_ERROR: "APIMart 上游服务暂时不可用，请稍后重试。",
-  APIMART_MISSING_TASK_ID: "APIMart 没有返回任务 ID。",
-  APIMART_UPLOAD_FAILED: "参考图片上传到 APIMart 失败，请稍后重试。",
-  APIMART_TASK_FAILED: "APIMart 生成任务失败。",
-  APIMART_RESULT_MISSING: "APIMart 任务已完成，但没有返回结果地址。",
-  UNSUPPORTED_MODEL_OPTIONS: "当前模型不支持所选比例、画质、时长或参考素材。",
-  EMPTY_TEXT_PROMPT: "请输入文本提示词。",
-  EMPTY_IMAGE_PROMPT: "请输入图片提示词。",
-  EMPTY_VIDEO_PROMPT: "请输入视频提示词。",
-  EMPTY_AGENT_PROMPT: "请输入 Agent 提示词。",
-  UNSUPPORTED_AGENT_MODEL: "不支持的 Agent 模型。",
-  INVALID_IMAGE_FORMAT: "图片仅支持 PNG、JPEG 或 WebP 格式。",
-  IMAGE_UPLOAD_TOO_LARGE: "上传图片不能超过 10 MB。",
-  IMAGE_TASK_NOT_FOUND: "找不到所选图片。",
-  INTERRUPTED_BY_USER: "任务已被用户打断。",
-  TASK_POLL_TIMEOUT: "任务状态查询超时，请稍后重新查询。",
-  TIMEOUT: "已超时",
-  TASK_NOT_FOUND: "任务不存在。",
-  AGNES_LOCAL_IMAGE_UNSUPPORTED: "Agnes 暂时无法读取本地图片数据。当前本地 MVP 需要接入公网对象存储后再使用该图片。",
-  AGNES_RATE_LIMIT: "Agnes 当前上游负载较高或请求过多，请稍后重试。",
-  AGNES_SERVICE_BUSY: "Agnes 视频队列仍被远端任务占用，当前无法提交新任务。请等待远端 queued 任务结束，或更换/重置 Agnes API Key 后再试。",
-  AGNES_REQUEST_TIMEOUT: "Agnes 视频接口长时间没有返回，通常是远端队列繁忙或任务卡在排队中。",
-  AGNES_OUT_OF_MEMORY: "Agnes 上游显存不足，请使用 720p/1K、缩短时长，或稍后再试。",
-  AGNES_CLOUDFLARE_520: "Agnes 上游网关异常 520。通常是上游服务或 Cloudflare 临时异常，不是本地参数错误。",
-  AGNES_UPSTREAM_ERROR: "Agnes 上游服务请求失败。系统已自动重试，请稍后再试；如果持续失败，请降低画质或更换提示词。",
-  AGNES_NO_DEPLOYMENT: "当前 Agnes 模型暂无可用部署，请检查模型名称或等待上游恢复。",
-  AGNES_EMPTY_TEXT: "Agnes 2.0 Flash 没有返回文本内容。",
-  AGNES_EMPTY_IMAGE: "Agnes Image 2.1 Flash 没有返回图片数据。",
-  AGNES_MISSING_TASK_ID: "Agnes API 没有返回任务 ID。",
-  AGNES_VIDEO_FAILED: "Agnes 视频生成失败。",
-  AGNES_VIDEO_MISSING_URL: "Agnes 任务已完成，但没有返回视频地址。",
-  DOWNLOAD_FAILED: "下载生成结果失败，请稍后重试。",
-};
-
-const SUGGESTIONS = [
-  // 风格与氛围
-  "把画面氛围调冷一点，但保留柔和的光",
-  "我想要孤独、安静、电影感的画面",
-  "换成吉卜力那种温暖手绘感",
-  "加一点胶片颗粒和漏光质感",
-  "调成高对比的赛博朋克霓虹风",
-  "做成黑白纪实摄影的风格",
-  "让主体动作更克制、更高级",
-  // 图像创意
-  "画一张赛博朋克雨夜街景，霓虹倒影",
-  "生成一张极简产品海报，大面积留白",
-  "画一个温馨咖啡馆内景，午后阳光",
-  "做一张水彩风格的儿童插画",
-  "生成俯视角美食摄影，暖色调",
-  "设计三种不同风格的画面方案",
-  // 视频运镜
-  "给这张人像加一个缓慢推近的特写",
-  "设计一个 360 度环绕展示运镜",
-  "做一个从远景到特写的电影感转场",
-  "生成一段延时摄影风格的流云",
-  "让水面波纹动起来，保持画面静谧",
-  "给我一个温暖、慢节奏的运镜方案",
-  "把它改成产品广告片的镜头语言",
-  "给这张图做一个 5 秒循环视频创意",
-  "分析这个人物图适合生成什么视频动作",
-  "这个画面适合做成什么短视频故事",
-  // 画布操作与分析
-  "把当前画布整理成一套镜头提示词",
-  "基于画布上的图，续画一个不同角度",
-  "把画布里两张图融合成一个新创意",
-  "帮我对比画布上几个方案的优劣",
-  "给画布每个节点补一个更精准的提示词",
-  "整理画布为一套连贯的视觉故事板",
-  "提炼当前画布里的核心视觉关键词",
-  // 提示词工程
-  "把我的描述扩写成更丰富的英文提示词",
-  "给这个提示词加三种风格变体",
-  "翻译并优化这段中文提示词为英文",
-  "精简这段提示词，去掉冗余保留核心",
-  "生成一段适合 Agnes Video 的英文提示词",
-];
-
-const KIND_META: Record<Kind, { title: string; subtitle: string; icon: IconName }> = {
-  text: { title: "文本", subtitle: "GPT-5.5", icon: "text" },
-  image: { title: "图像", subtitle: "Agnes Image 2.1 Flash", icon: "image" },
-  video: { title: "视频", subtitle: "Agnes Video V2.0", icon: "video" },
-  storyboard: { title: "\u5206\u955c\u8868\u683c", subtitle: "\u955c\u5934\u7ed3\u6784", icon: "grid" },
-  "media-image": { title: "图片素材", subtitle: "本地输入", icon: "image" },
-  "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
-  group: { title: "节点组", subtitle: "容器", icon: "grid" },
-};
-
-function imageSize(ratio: Ratio, quality: Quality) {
-  return getImageSize(ratio, quality);
-}
-
-function qualityLabel(quality: Quality) {
-  return quality.toUpperCase();
-}
-
-function fileToDataUrl(file: File) {
-  return new Promise<string>((resolve, reject) => {
-    const reader = new FileReader();
-    reader.onload = () => resolve(String(reader.result));
-    reader.onerror = () => reject(reader.error);
-    reader.readAsDataURL(file);
-  });
-}
-
-async function materializeReferenceUrl(url: string) {
-  if (!url.startsWith("blob:")) return url;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
-  const blob = await response.blob();
-  return fileToDataUrl(new File([blob], "reference", { type: blob.type || "image/png" }));
-}
-
-async function localUrlToDataUrl(url: string): Promise<string> {
-  if (url.startsWith("data:") || /^https?:\/\//.test(url)) return url;
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
-  const blob = await response.blob();
-  return fileToDataUrl(new File([blob], "canvas", { type: blob.type || "image/png" }));
-}
-
-function randomUuid(): string {
-  // crypto.randomUUID() 仅在安全上下文（HTTPS/localhost）可用
-  // 使用 crypto.getRandomValues() 生成 UUID v4 作为兼容方案
-  return "10000000-1000-4000-8000-100000000000".replace(/[018]/g, (c) =>
-    (Number(c) ^ crypto.getRandomValues(new Uint8Array(1))[0] & 15 >> Number(c) / 4).toString(16)
-  );
-}
-
-async function appendImageFromUrl(form: FormData, field: string, url: string, name: string, mode: "set" | "append" = "set") {
-  const response = await fetch(url);
-  if (!response.ok) throw new Error("DOWNLOAD_FAILED");
-  const blob = await response.blob();
-  const filename = name.replace(/[^\w.-]+/g, "-") || `${field}.png`;
-  if (mode === "append") form.append(field, blob, filename);
-  else form.set(field, blob, filename);
-}
-
-async function readJson(response: Response) {
-  const text = await response.text();
-  if (!text) return {};
-  try {
-    return JSON.parse(text);
-  } catch {
-    throw new Error("INVALID_JSON_RESPONSE");
-  }
-}
-
-function localizeError(value: unknown) {
-  const text = String(value ?? "UNKNOWN_ERROR");
-  return ERROR_TEXT_ZH[text] ?? text;
-}
-
-function responseError(body: Record<string, unknown>, fallback = "UNKNOWN_ERROR") {
-  return localizeError(body.errorCode ?? body.error ?? fallback);
-}
-
-function statusLabel(status: string): string {
-  switch (status) {
-    case "pending":
-    case "queued":
-      return "排队中";
-    case "submitting":
-      return "提交中";
-    case "processing":
-      return "生成中";
-    case "downloading":
-      return "即将完成";
-    case "timeout":
-      return "查询超时";
-    default:
-      return "生成中";
-  }
-}
-
-function Icon({ name }: { name: IconName }) {
-  const paths: Record<IconName, React.ReactNode> = {
-    text: <path d="M5 6V4h14v2M12 4v16m-4 0h8" />,
-    image: (
-      <>
-        <rect width="18" height="16" x="3" y="4" rx="3" />
-        <circle cx="8.5" cy="9" r="1.5" />
-        <path d="m21 15-5-5L5 20" />
-      </>
-    ),
-    video: (
-      <>
-        <rect width="14" height="12" x="3" y="6" rx="3" />
-        <path d="m17 10 4-2v8l-4-2" />
-      </>
-    ),
-    spark: <path d="m12 2 1.8 6.2L20 10l-6.2 1.8L12 18l-1.8-6.2L4 10l6.2-1.8Z" />,
-    plus: <path d="M12 5v14m-7-7h14" />,
-    close: <path d="M18 6 6 18M6 6l12 12" />,
-    upload: (
-      <>
-        <path d="M12 16V4m0 0L8 8m4-4 4 4" />
-        <path d="M5 14v4a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2v-4" />
-      </>
-    ),
-    history: (
-      <>
-        <path d="M3 12a9 9 0 1 0 3-6.7" />
-        <path d="M3 4v5h5M12 7v5l3 2" />
-      </>
-    ),
-    send: <path d="m22 2-7 20-4-9-9-4Z" />,
-    map: <path d="m3 6 6-3 6 3 6-3v15l-6 3-6-3-6 3V6Zm6-3v15m6-12v15" />,
-    grid: (
-      <>
-        <path d="M4 4h16v16H4z" />
-        <path d="M4 10h16M4 16h16M10 4v16M16 4v16" />
-      </>
-    ),
-    fit: (
-      <>
-        <path d="M8 3H5a2 2 0 0 0-2 2v3m18 0V5a2 2 0 0 0-2-2h-3M3 16v3a2 2 0 0 0 2 2h3m8 0h3a2 2 0 0 0 2-2v-3" />
-      </>
-    ),
-    settings: (
-      <>
-        <path d="M4 7h10m4 0h2M4 17h2m4 0h10" />
-        <circle cx="16" cy="7" r="2" />
-        <circle cx="8" cy="17" r="2" />
-      </>
-    ),
-    bulb: (
-      <>
-        <path d="M9 18h6M10 22h4" />
-        <path d="M8 14a6 6 0 1 1 8 0c-1.2.9-1.7 1.8-1.8 3H9.8c-.1-1.2-.6-2.1-1.8-3Z" />
-      </>
-    ),
-    camera: (
-      <>
-        <path d="M14.5 4h-5L7 7H4a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2V9a2 2 0 0 0-2-2h-3l-2.5-3Z" />
-        <circle cx="12" cy="13" r="3" />
-      </>
-    ),
-    stop: <rect x="8" y="8" width="8" height="8" rx="1.5" />,
-    "arrow-up": <path d="M12 19V5m0 0-6 6m6-6 6 6" />,
-    folder: <path d="M3 7.5A2.5 2.5 0 0 1 5.5 5H9l2 2h7.5A2.5 2.5 0 0 1 21 9.5v7A2.5 2.5 0 0 1 18.5 19h-13A2.5 2.5 0 0 1 3 16.5v-9Z" />,
-    chat: <path d="M5 6.5h14a2 2 0 0 1 2 2v6.5a2 2 0 0 1-2 2H9l-4 3v-3H5a2 2 0 0 1-2-2V8.5a2 2 0 0 1 2-2Z" />,
-    layers: (
-      <>
-        <path d="m12 3 8 4.5-8 4.5-8-4.5Z" />
-        <path d="m4 12 8 4.5 8-4.5M4 16.5 12 21l8-4.5" />
-      </>
-    ),
-    ellipsis: (
-      <>
-        <circle cx="5" cy="12" r="1" />
-        <circle cx="12" cy="12" r="1" />
-        <circle cx="19" cy="12" r="1" />
-      </>
-    ),
-    chevron: <path d="m9 18 6-6-6-6" />,
-    copy: <path d="M8 8h10v10H8zM6 16H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1" />,
-    trash: <path d="M4 7h16m-10 4v6m4-6v6M6 7l1 14h10l1-14M9 7V4h6v3" />,
-    user: (
-      <>
-        <circle cx="12" cy="8" r="3.5" />
-        <path d="M5 20a7 7 0 0 1 14 0" />
-      </>
-    ),
-    logout: <path d="M10 6H6a2 2 0 0 0-2 2v8a2 2 0 0 0 2 2h4M15 7l5 5-5 5M20 12H9" />,
-    "model-wave": <path d="M3.5 14c3.2-5.8 11.8-7.2 14.8-4.8 1.9 1.5-1.3 3.1-5.2 3.5-4.5.5-7.8 1.9-6.8 3.5 1.4 2.1 7.5 1.2 14.2-1.6" />,
-    "model-bars": (
-      <>
-        <path d="M5 6v12M9.5 9v6M14 4v16M18.5 8v8" />
-      </>
-    ),
-    "model-google": <path d="M20 12.2c0 4.6-3.1 7.8-7.7 7.8A8 8 0 1 1 18 6.4l-2.2 2.1A4.8 4.8 0 1 0 17 15h-4.9v-2.8H20Z" />,
-    "model-openai": <path d="M12 3.2 16.6 6v5.3L12 14l-4.6-2.7V6L12 3.2Zm4.6 2.8 3.4 2v5.4l-4.6 2.7-4.6-2.7M7.4 6 4 8v5.4l4.6 2.7 4.6-2.7M4 13.4v4l4.6 2.7 3.4-2M20 13.4v4l-4.6 2.7-3.4-2" />,
-    "model-kling": <path d="M6 4v16M18 4 9 12l9 8M10 12l8-8" />,
-    "model-horse": <path d="M5 17c1.2-5.6 4.4-9.2 9.8-10.8l3.2 2.6-2.3 1.1 1.1 3.1-2.8 1.5-1.8-2.2c-1.9 1.2-3.1 3.1-3.7 5.7M4 20h14" />,
-    "model-agnes": <path d="M12 3 14.4 9.6 21 12l-6.6 2.4L12 21l-2.4-6.6L3 12l6.6-2.4Z" />,
-    "model-xai": <path d="M4 4 20 20M20 4 4 20M7 4h10M7 20h10" />,
-  };
-
-  return (
-    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.65" strokeLinecap="round" strokeLinejoin="round">
-      {paths[name]}
-    </svg>
-  );
-}
-
-function modelLogoClass(modelId: string) {
-  const id = modelId.toLowerCase();
-  if (id.includes("gemini")) return "model-logo-google";
-  if (id.includes("gpt")) return "model-logo-openai";
-  if (id.includes("kling")) return "model-logo-kling";
-  if (id.includes("happyhorse")) return "model-logo-horse";
-  if (id.includes("grok")) return "model-logo-xai";
-  if (id.includes("agnes")) return "model-logo-agnes";
-  if (id.includes("seedance") || id.includes("doubao")) return "model-logo-seedance";
-  return "model-logo-generic";
-}
-
-function ModelLogoMark({ model, className = "" }: { model: ReturnType<typeof getModelDefinition>; className?: string }) {
-  const logo = getProviderLogo(model.provider);
-  return (
-    <span className={`model-logo-mark ${modelLogoClass(model.id)} ${logo.src ? "has-logo" : "empty-logo"} ${className}`} title={logo.label}>
-      {logo.src ? <img src={logo.src} alt="" /> : null}
-    </span>
-  );
-}
-
-function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
-  const picker = useRef<HTMLInputElement>(null);
-  const startFramePicker = useRef<HTMLInputElement>(null);
-  const endFramePicker = useRef<HTMLInputElement>(null);
-  const referenceFramePicker = useRef<HTMLInputElement>(null);
-  const meta = KIND_META[data.kind];
-  const isMedia = data.kind.startsWith("media-");
-  const [motionOpen, setMotionOpen] = useState(false);
-  const [modelOpen, setModelOpen] = useState(false);
-  const [mediaLayout, setMediaLayout] = useState<AdaptiveMediaLayout>();
-  const updateNodeInternals = useUpdateNodeInternals();
-  const generationKind = data.kind === "image" || data.kind === "video" ? data.kind : undefined;
-  const selectedModelId = data.model ?? (data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0");
-  const selectedModel = generationKind ? getModelDefinition(selectedModelId) : undefined;
-  const availableModels = generationKind ? modelsForKind(generationKind) : [];
-  const qualityOptions = data.kind === "video" ? VIDEO_QUALITIES : selectedModel?.resolutions ?? [];
-  const videoCapabilities = data.kind === "video" && selectedModel ? getVideoModelCapabilities(selectedModel.id) : undefined;
-  const videoOptions = videoCapabilities ? sanitizeVideoOptionsForModel(selectedModelId, {
-    mode: data.videoMode,
-    aspectRatio: data.ratio,
-    resolution: data.quality,
-    duration: data.duration,
-    hasStartFrame: Boolean(data.startFrameUrl),
-    hasEndFrame: Boolean(data.endFrameUrl),
-    hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
-  }) : undefined;
-  const videoSettingsSummary = videoOptions
-    ? `${videoModeLabels[videoOptions.mode]} · ${videoOptions.aspectRatio} · ${qualityLabel(videoOptions.resolution)} · ${videoOptions.duration}s`
-    : "";
-  const referenceFrameUrls = data.referenceFrameUrls ?? [];
-  const referenceFrameNames = data.referenceFrameNames ?? [];
-  const maxReferenceImages = videoCapabilities?.maxReferenceImages ?? 0;
-  const canAddReferenceFrame = maxReferenceImages === 0 || referenceFrameUrls.length < maxReferenceImages;
-  const frameMode = videoOptions?.mode ?? "text";
-  const estimatedCredits = selectedModel ? estimateCredits({
-    model: selectedModel.id,
-    resolution: data.quality,
-    duration: data.duration,
-    hasImageInput: Boolean(data.startFrameUrl || data.endFrameUrl || data.referenceFrameUrls?.length || data.hasImageInput),
-  }) : 0;
-  const promptHeight = Math.min(260, Math.max(96, 78 + data.prompt.length / 3 + data.prompt.split("\n").length * 20));
-  const textLengthClass = data.result && data.kind === "text"
-    ? data.result.length > 900 ? "text-long" : data.result.length > 420 ? "text-medium" : "text-short"
-    : "";
-  const importMedia = async (file?: File) => {
-    if (!file) return;
-    try {
-      const url = await data.uploadAsset(file);
-      data.update(id, {
-        kind: file.type.startsWith("video/") ? "media-video" : "media-image",
-        title: file.name,
-        url,
-        result: undefined,
-        error: "",
-      });
-    } catch (error) {
-      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
-    }
-  };
-  const importFrame = async (slot: "start" | "end", file?: File) => {
-    if (!file) return;
-    if (!file.type.startsWith("image/")) {
-      data.update(id, { error: "首尾帧只能上传图片素材。" });
-      return;
-    }
-    try {
-      const url = await data.uploadAsset(file);
-      if (slot === "start") {
-        data.update(id, { startFrameUrl: url, startFrameName: file.name, error: "" });
-      } else {
-        data.update(id, { endFrameUrl: url, endFrameName: file.name, error: "" });
-      }
-    } catch (error) {
-      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
-    }
-  };
-  const importReferenceFrames = async (files: File[]) => {
-    if (!files.length || !videoCapabilities?.supportsReferenceImages || !canAddReferenceFrame) return;
-    const slots = maxReferenceImages ? Math.max(0, maxReferenceImages - referenceFrameUrls.length) : files.length;
-    const accepted = files.slice(0, slots).filter((file) => file.type.startsWith("image/"));
-    if (!accepted.length) {
-      data.update(id, { error: "REFERENCE_IMAGE_ONLY" });
-      return;
-    }
-    try {
-      const uploaded = await Promise.all(accepted.map(async (file) => ({ name: file.name, url: await data.uploadAsset(file) })));
-      data.update(id, {
-        referenceFrameUrls: [...referenceFrameUrls, ...uploaded.map((item) => item.url)].slice(0, maxReferenceImages || undefined),
-        referenceFrameNames: [...referenceFrameNames, ...uploaded.map((item) => item.name)].slice(0, maxReferenceImages || undefined),
-        error: "",
-      });
-    } catch (error) {
-      data.update(id, { error: error instanceof Error ? error.message : "UPLOAD_FAILED" });
-    }
-  };
-  const removeFrame = (slot: "start" | "end") => {
-    data.update(id, slot === "start"
-      ? { startFrameUrl: undefined, startFrameName: undefined }
-      : { endFrameUrl: undefined, endFrameName: undefined });
-  };
-  const removeReferenceFrame = (index: number) => {
-    data.update(id, {
-      referenceFrameUrls: referenceFrameUrls.filter((_, itemIndex) => itemIndex !== index),
-      referenceFrameNames: referenceFrameNames.filter((_, itemIndex) => itemIndex !== index),
-    });
-  };
-  const openNextFramePicker = () => {
-    if (!data.startFrameUrl) {
-      startFramePicker.current?.click();
-      return;
-    }
-    if (!selectedModel?.supportsEndFrame) {
-      data.update(id, { error: "当前模型不支持尾帧图片。" });
-      return;
-    }
-    endFramePicker.current?.click();
-  };
-  const selectModel = (modelId: string) => {
-    const model = getModelDefinition(modelId);
-    if (model.kind === "video") {
-      const normalized = sanitizeVideoOptionsForModel(modelId, {
-        mode: data.videoMode,
-        aspectRatio: data.ratio,
-        resolution: data.quality,
-        duration: data.duration,
-        hasStartFrame: Boolean(data.startFrameUrl),
-        hasEndFrame: Boolean(data.endFrameUrl),
-        hasImageInput: Boolean(data.referenceFrameUrls?.length || data.hasImageInput),
-      });
-      data.update(id, {
-        model: modelId,
-        videoMode: normalized.mode,
-        ratio: normalized.aspectRatio,
-        quality: normalized.resolution,
-        duration: normalized.duration,
-        settingsOpen: false,
-        error: "",
-      });
-    } else {
-      const normalized = normalizeModelOptions(modelId, { ratio: data.ratio, resolution: data.quality, duration: data.duration });
-      data.update(id, { model: modelId, ratio: normalized.ratio, quality: normalized.resolution, duration: normalized.duration, settingsOpen: false, error: "" });
-    }
-    setModelOpen(false);
-  };
-  const updateMediaLayout = (width: number, height: number) => {
-    setMediaLayout(getAdaptiveMediaLayout(width, height));
-  };
-
-  useEffect(() => {
-    if (!mediaLayout) return;
-    updateNodeInternals(id);
-  }, [id, mediaLayout, updateNodeInternals]);
-
-  if (data.kind === "group") {
-    return (
-      <article className="canvas-node group">
-        <Handle type="target" position={Position.Left} className="port left" />
-        <div className="group-node-title"><Icon name="grid" /><span>{data.title}</span></div>
-        <div className="group-node-hint">拖动组可移动全部成员</div>
-        <Handle type="source" position={Position.Right} className="port right" />
-      </article>
-    );
-  }
-
-  if (data.kind === "storyboard") {
-    const storyboardShots = data.storyboardShots ?? [];
-    const updateShot = (shotId: string, patch: Partial<StoryboardShot>) => {
-      data.update(id, {
-        storyboardShots: storyboardShots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
-      });
-    };
-    const startShotDrag = (event: DragEvent<HTMLDivElement>, shot: StoryboardShot) => {
-      event.dataTransfer.effectAllowed = "copy";
-      event.dataTransfer.setData("application/x-genora-storyboard-shot", JSON.stringify({ sourceNodeId: id, shot }));
-      event.dataTransfer.setData("text/plain", shot.videoPrompt);
-    };
-    return (
-      <article className={`canvas-node glass storyboard ${data.selectionSuppressed ? "selection-suppressed" : ""}`}>
-        <Handle type="target" position={Position.Left} className="port left" />
-        <div className="node-badge">
-          <span>
-            <Icon name={meta.icon} />
-            {data.title}
-          </span>
-          <button aria-label="删除节点" onClick={() => data.remove(id)}>
-            <Icon name="close" />
-          </button>
-        </div>
-        <div className="storyboard-node-table nodrag">
-          <header>
-            <b>分镜表格</b>
-            <small>{storyboardShots.length} shots</small>
-          </header>
-          <div className="storyboard-table-head">
-            <span>镜号</span>
-            <span>画面描述</span>
-            <span>镜头运动</span>
-            <span>时长</span>
-            <span>视频提示词</span>
-          </div>
-          <div className="storyboard-table-body">
-            {storyboardShots.map((shot) => (
-              <div className="storyboard-table-row" key={shot.id} draggable onDragStart={(event) => startShotDrag(event, shot)}>
-                <input value={shot.shotNumber} onChange={(event) => updateShot(shot.id, { shotNumber: event.target.value })} />
-                <textarea value={shot.visual} onChange={(event) => updateShot(shot.id, { visual: event.target.value })} />
-                <textarea value={shot.cameraMotion} onChange={(event) => updateShot(shot.id, { cameraMotion: event.target.value })} />
-                <input type="number" min="1" max="20" value={shot.duration} onChange={(event) => updateShot(shot.id, { duration: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
-                <textarea value={shot.videoPrompt} onChange={(event) => updateShot(shot.id, { videoPrompt: event.target.value })} />
-              </div>
-            ))}
-          </div>
-          <p>拖拽任一分镜行到画布，可创建已连接的视频节点。</p>
-        </div>
-        <Handle type="source" position={Position.Right} className="port right" />
-      </article>
-    );
-  }
-
-  return (
-    <article
-      className={`canvas-node glass ${data.kind} ${textLengthClass} ${data.url ? "has-media" : ""} ${data.selectionSuppressed ? "selection-suppressed" : ""}`}
-      style={mediaLayout ? ({ width: `${mediaLayout.width}px`, "--media-aspect": mediaLayout.aspectRatio } as CSSProperties) : undefined}
-    >
-      <Handle type="target" position={Position.Left} className="port left" />
-      <button className="node-upload nodrag" onClick={() => picker.current?.click()}>
-        <Icon name="upload" />
-        上传
-      </button>
-      <div className="node-badge">
-        <span>
-          <Icon name={meta.icon} />
-          {data.title}
-        </span>
-        <button aria-label="删除节点" onClick={() => data.remove(id)}>
-          <Icon name="close" />
-        </button>
-      </div>
-      <input ref={picker} hidden type="file" accept="image/*,video/*" onChange={(event) => importMedia(event.target.files?.[0])} />
-      <div className="node-body">
-        {data.url ? (
-          data.kind.includes("video") ? (
-            <video src={data.url} controls onLoadedMetadata={(event) => updateMediaLayout(event.currentTarget.videoWidth, event.currentTarget.videoHeight)} />
-          ) : (
-            <img src={data.url} alt={data.title} onLoad={(event) => updateMediaLayout(event.currentTarget.naturalWidth, event.currentTarget.naturalHeight)} />
-          )
-        ) : data.error ? (
-          <div className="node-error-card">
-            <Icon name={meta.icon} />
-            <span>生成失败</span>
-            <p>{data.error}</p>
-          </div>
-        ) : data.busy && data.kind === "video" ? (
-          <div className="node-result-card video-generating">
-            <Icon name={meta.icon} />
-            <p className="text-result" onWheel={(event) => event.stopPropagation()}>{data.result || "生成中"}</p>
-          </div>
-        ) : data.result ? (
-          <div className="node-result-card">
-            <p className="text-result" onWheel={(event) => event.stopPropagation()}>{data.result}</p>
-            {data.canResume && data.kind === "video" && (
-              <div className="node-resume-section">
-                <button className="resume-button" onClick={() => data.generate(id)}>
-                  继续查询结果
-                </button>
-                <div className="node-debug">
-                  {data.taskId && <span><b>taskId:</b> {data.taskId}</span>}
-                  {data.lastProviderStatus && <span><b>上游状态:</b> {data.lastProviderStatus}</span>}
-                  <span><b>状态:</b> timeout</span>
-                  <span><b>错误:</b> AGNES_VIDEO_TIMEOUT</span>
-                </div>
-              </div>
-            )}
-          </div>
-        ) : (
-          <div className="node-blank">
-            <Icon name={meta.icon} />
-            <span>{isMedia ? "上传或拖入素材" : "等待生成"}</span>
-          </div>
-        )}
-      </div>
-      {!isMedia && (
-        <div className="prompt-pop nodrag" onMouseDown={(event) => event.stopPropagation()}>
-          {(data.kind === "image" || data.kind === "video") && (
-            <div className="frame-strip">
-              <span className={`prompt-tool-square ${data.kind === "video" ? "motion-trigger-pill" : ""}`} onClick={() => { if (data.kind === "video") setMotionOpen(!motionOpen); else startFramePicker.current?.click(); }} style={{ cursor: "pointer" }}>
-                <Icon name="camera" />
-                {data.kind === "video" && <b>{MOTION_PRESETS.find((motion) => motion.id === (data.motionPreset ?? "auto"))?.label ?? "自动镜头"}</b>}
-              </span>
-              {motionOpen && (
-                <div className="motion-popover glass">
-                  <header><b>镜头运动</b><button onClick={() => setMotionOpen(false)}><Icon name="close" /></button></header>
-                  <div className="motion-options">
-                    {MOTION_PRESETS.map((motion) => (
-                      <button
-                        key={motion.id}
-                        className={(data.motionPreset ?? "auto") === motion.id ? "selected" : ""}
-                        onClick={() => { data.update(id, { motionPreset: motion.id }); setMotionOpen(false); }}
-                      >
-                        {motion.label}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {data.kind === "video" && frameMode !== "reference" && frameMode !== "text" && (
-                <>
-                  <div className="frame-slot start-frame-slot">
-                    <button type="button" className={`frame-chip ${data.startFrameUrl ? "filled" : ""}`} onClick={() => startFramePicker.current?.click()} aria-label="首帧">
-                      {data.startFrameUrl ? <img src={data.startFrameUrl} alt="" /> : <Icon name="image" />}
-                      <span className="frame-tooltip">首帧</span>
-                    </button>
-                    {data.startFrameUrl && (
-                      <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
-                        <Icon name="close" />
-                      </button>
-                    )}
-                  </div>
-                  {frameMode === "first-last" && videoCapabilities?.supportsFirstLastFrame && (
-                    <div className="frame-slot end-frame-slot">
-                      <button type="button" className={`frame-chip ${data.endFrameUrl ? "filled" : ""}`} onClick={() => endFramePicker.current?.click()} aria-label="尾帧">
-                        {data.endFrameUrl ? <img src={data.endFrameUrl} alt="" /> : <Icon name="image" />}
-                        <span className="frame-tooltip">尾帧</span>
-                      </button>
-                      {data.endFrameUrl && (
-                        <button type="button" className="frame-remove" aria-label="删除尾帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("end"); }}>
-                          <Icon name="close" />
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </>
-              )}
-              {data.kind === "video" && frameMode === "reference" && videoCapabilities?.supportsReferenceImages && (
-                <div className="reference-frame-grid">
-                  {referenceFrameUrls.map((url, index) => (
-                    <div className="frame-slot reference-frame-slot" key={`${url}-${index}`}>
-                      <button type="button" className="frame-chip filled" onClick={() => referenceFramePicker.current?.click()} aria-label={`参考图 ${index + 1}`}>
-                        <img src={url} alt="" />
-                        <span className="frame-tooltip">参考</span>
-                      </button>
-                      <button type="button" className="frame-remove" aria-label="删除参考图" onClick={(event) => { event.stopPropagation(); removeReferenceFrame(index); }}>
-                        <Icon name="close" />
-                      </button>
-                    </div>
-                  ))}
-                  {canAddReferenceFrame && (
-                    <button type="button" className="frame-add reference-frame-add" aria-label="添加参考图" onClick={() => referenceFramePicker.current?.click()}>
-                      <Icon name="plus" />
-                      <span className="frame-tooltip">参考</span>
-                    </button>
-                  )}
-                </div>
-              )}
-              {data.kind === "image" && data.startFrameUrl && (
-                <div className="frame-chip-wrap">
-                  <button type="button" className="frame-chip filled" onClick={() => startFramePicker.current?.click()}>
-                    <img src={data.startFrameUrl} alt="" />
-                    <span className="frame-tooltip">首帧</span>
-                  </button>
-                  <button type="button" className="frame-remove" aria-label="删除首帧图片" onClick={(event) => { event.stopPropagation(); removeFrame("start"); }}>
-                    <Icon name="close" />
-                  </button>
-                </div>
-              )}
-              {data.kind === "image" && (
-                <button type="button" className="frame-add" aria-label="添加参考图片" onClick={openNextFramePicker}>
-                  <Icon name="plus" />
-                  <span className="frame-tooltip">首帧</span>
-                </button>
-              )}
-              <input ref={startFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
-                importFrame("start", event.target.files?.[0]);
-                event.target.value = "";
-              }} />
-              <input ref={endFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" onChange={(event) => {
-                importFrame("end", event.target.files?.[0]);
-                event.target.value = "";
-              }} />
-              <input ref={referenceFramePicker} hidden type="file" accept="image/png,image/jpeg,image/webp" multiple onChange={(event) => {
-                void importReferenceFrames(Array.from(event.target.files ?? []));
-                event.target.value = "";
-              }} />
-            </div>
-          )}
-          <textarea
-            className="prompt-input"
-            style={{ height: `${promptHeight}px` }}
-            value={data.prompt}
-            onChange={(event) => data.update(id, { prompt: event.target.value })}
-            placeholder="填写提示词，描述你想生成的内容..."
-          />
-          <div className="prompt-toolbar">
-            {data.kind === "text" && (
-              <button
-                type="button"
-                className="storyboard-trigger"
-                disabled={data.storyboardGenerating}
-                onClick={(event) => { event.stopPropagation(); data.generateStoryboard(id); }}
-              >
-                <Icon name="grid" />
-                {data.storyboardGenerating ? "生成中" : "分镜"}
-              </button>
-            )}
-            {selectedModel && (
-              <div className={`model-picker ${modelOpen ? "open" : ""}`}>
-                <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
-                  <ModelLogoMark model={selectedModel} />
-                  <span>{selectedModel.label}</span>
-                </button>
-                {modelOpen && (
-                  <div className="model-menu">
-                    {availableModels.map((model) => <button type="button" key={model.id} className={selectedModel.id === model.id ? "selected" : ""} onClick={(event) => { event.stopPropagation(); selectModel(model.id); }}>
-                      <ModelLogoMark model={model} />
-                      <span><b>{model.label}</b><small>{modelCapabilityLabel(model)}</small></span>
-                      <em>{model.free ? "Free" : model.id === selectedModel.id ? "✓" : ""}</em>
-                    </button>)}
-                  </div>
-                )}
-              </div>
-            )}
-            {selectedModel && (
-              <div className={`settings-details ${data.settingsOpen ? "open" : ""}`}>
-                <button type="button" className="settings-trigger" onClick={(event) => { event.stopPropagation(); setModelOpen(false); data.update(id, { settingsOpen: !data.settingsOpen }); }}>
-                  <i className={`ratio-shape ratio-${data.ratio.replace(":", "-")}`} />
-                  <span className={data.kind === "video" ? "video-settings-summary" : ""}>
-                    {data.kind === "video" ? videoSettingsSummary : `${data.ratio} · ${qualityLabel(data.quality)}`}
-                  </span>
-                </button>
-                {data.settingsOpen && (
-                  data.kind === "video" && videoCapabilities && videoOptions ? (
-                    <div className="node-options video-node-options">
-                      <div className="option-block">
-                        <span>生成方式</span>
-                        <div className="video-mode-options">
-                          {videoCapabilities.supportedModes.filter((mode) => mode !== "text").map((mode) => (
-                            <button key={mode} className={videoOptions.mode === mode ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { videoMode: mode }); }}>{videoModeLabels[mode]}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="option-block">
-                        <span>比例</span>
-                        <div className="ratio-options video-ratio-options">
-                          {videoCapabilities.aspectRatios.map((ratio) => (
-                            <button key={ratio} className={videoOptions.aspectRatio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { ratio }); }}>
-                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="option-block">
-                        <span>清晰度</span>
-                        <div className="quality-options">
-                          {videoCapabilities.resolutions.map((quality) => (
-                            <button key={quality} className={videoOptions.resolution === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { quality }); }}>{qualityLabel(quality)}</button>
-                          ))}
-                        </div>
-                      </div>
-                      <div className="option-block">
-                        <span>生成时长</span>
-                        <div className="quality-options duration-options">
-                          {videoCapabilities.durations.map((duration) => (
-                            <button key={duration} className={videoOptions.duration === duration ? "selected" : ""} onClick={(event) => { event.stopPropagation(); data.update(id, { duration }); }}>{duration}s</button>
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  ) : (
-                    <div className="node-options">
-                      <div className="option-block">
-                        <span>画质与分辨率</span>
-                        <div className="quality-options">
-                          {qualityOptions.map((quality) => {
-                            const supported = selectedModel.resolutions.includes(quality);
-                            return <button key={quality} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${qualityLabel(quality)}`} className={data.quality === quality ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { quality }); }}>{qualityLabel(quality)}</button>;
-                          })}
-                        </div>
-                      </div>
-                      <div className="option-block">
-                        <span>比例</span>
-                        <div className="ratio-options">
-                          {RATIOS.map((ratio) => {
-                            const supported = selectedModel.ratios.includes(ratio);
-                            return <button key={ratio} disabled={!supported} title={supported ? undefined : `${selectedModel.label} 不支持 ${ratio}`} className={data.ratio === ratio ? "selected" : ""} onClick={(event) => { event.stopPropagation(); if (supported) data.update(id, { ratio }); }}>
-                              <i className={`ratio-shape ratio-${ratio.replace(":", "-")}`} /><em>{ratio}</em>
-                            </button>;
-                          })}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                )}
-              </div>
-            )}
-            {data.kind === "video" && selectedModel?.supportsNegativePrompt && (
-              <div className={`negative-prompt-details ${data.negativePromptOpen ? "open" : ""}`}>
-                <button type="button" className="negative-prompt-trigger" onClick={(event) => { event.stopPropagation(); data.update(id, { negativePromptOpen: !data.negativePromptOpen }); }}>
-                  反向提示词
-                </button>
-                {data.negativePromptOpen && (
-                  <div className="negative-prompt-dialog glass">
-                    <textarea
-                      className="negative-prompt-input"
-                      value={data.negativePrompt ?? ""}
-                      onChange={(event) => data.update(id, { negativePrompt: event.target.value })}
-                      placeholder="描述不想在视频中出现的元素，如：模糊、低质量、扭曲、文字、水印..."
-                    />
-                  </div>
-                )}
-              </div>
-            )}
-            {selectedModel && <span className={`generation-cost ${selectedModel.free ? "free" : ""}`}>{selectedModel.free ? "Free" : `预计 ${estimatedCredits.toFixed(2).replace(/\.00$/, "")} 积分`}</span>}
-            <button className="generate-button-submit" aria-label={data.busy ? "打断生成" : "生成"} title={data.busy ? "打断生成" : "生成"} onClick={() => data.generate(id)}>
-              <span className="submit-credit-mark"><Icon name={data.busy ? "stop" : "spark"} /></span>
-              {selectedModel && <span className={`generation-cost ${selectedModel.free ? "free" : ""}`}>{selectedModel.free ? "Free" : estimatedCredits.toFixed(2).replace(/\.00$/, "")}</span>}
-              <span className="submit-arrow"><Icon name={data.busy ? "stop" : "arrow-up"} /></span>
-            </button>
-          </div>
-        </div>
-      )}
-      <Handle type="source" position={Position.Right} className="port right" />
-    </article>
-  );
-}
-
-function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNode>): boolean {
-  if (prev.id !== next.id) return false;
-  const a = prev.data;
-  const b = next.data;
-  return (
-    a.kind === b.kind &&
-    a.title === b.title &&
-    a.prompt === b.prompt &&
-    a.ratio === b.ratio &&
-    a.quality === b.quality &&
-    a.model === b.model &&
-    a.videoMode === b.videoMode &&
-    a.motionPreset === b.motionPreset &&
-    a.duration === b.duration &&
-    a.settingsOpen === b.settingsOpen &&
-    a.negativePrompt === b.negativePrompt &&
-    a.negativePromptOpen === b.negativePromptOpen &&
-    a.url === b.url &&
-    a.startFrameUrl === b.startFrameUrl &&
-    a.startFrameName === b.startFrameName &&
-    a.endFrameUrl === b.endFrameUrl &&
-    a.endFrameName === b.endFrameName &&
-    a.referenceFrameUrls === b.referenceFrameUrls &&
-    a.referenceFrameNames === b.referenceFrameNames &&
-    a.storyboardShots === b.storyboardShots &&
-    a.sourceStoryboardShotId === b.sourceStoryboardShotId &&
-    a.storyboardGenerating === b.storyboardGenerating &&
-    a.result === b.result &&
-    a.taskId === b.taskId &&
-    a.busy === b.busy &&
-    a.error === b.error &&
-    a.canResume === b.canResume &&
-    a.lastProviderStatus === b.lastProviderStatus &&
-    a.selectionSuppressed === b.selectionSuppressed &&
-    a.hasImageInput === b.hasImageInput &&
-    a.actualCredits === b.actualCredits
-  );
-}
-
-const MemoizedWorkflowNode = memo(WorkflowNode, areWorkNodePropsEqual);
-
-const nodeTypes = { work: MemoizedWorkflowNode };
+  AGENT_CANVAS_TOOLS,
+  AGENT_TOOL_NAMES,
+  KIND_META,
+  MAX_VIDEO_FRAMES,
+  MOTION_PRESETS,
+  RATIOS,
+  SAFE_VIDEO_MAX_FRAMES,
+  SAFE_VIDEO_QUALITY,
+  SUGGESTIONS,
+  TEMP_USER_NAME,
+  VIDEO_FRAME_RATE,
+} from "@/features/workspace/workspace-constants";
+import { appendImageFromUrl, fileToDataUrl, localUrlToDataUrl, materializeReferenceUrl } from "@/features/workspace/workspace-client-utils";
+import { Icon } from "@/features/workspace/workspace-icon";
+import { nodeTypes } from "@/features/workspace/workflow-node";
+import {
+  imageSize,
+  localizeError,
+  mapTaskToNodePatch,
+  randomUuid,
+  readJson,
+  responseError,
+  serializeWorkNode,
+} from "@/features/workspace/workspace-utils";
+import type {
+  AgentAttachment,
+  AgentMessage,
+  AgentToolCall,
+  CanvasClipboard,
+  CanvasProject,
+  DeletedCanvasEntry,
+  Kind,
+  LibraryMenuState,
+  LibraryTreeItem,
+  MaterialLibraryItem,
+  MenuState,
+  NodeContextMenuState,
+  Ratio,
+  SaveStatus,
+  StoryboardShot,
+  StoredWorkData,
+  ThemeTone,
+  WorkNode,
+} from "@/features/workspace/workspace-types";
 
 function nodeSize(node: WorkNode) {
   const style = node.style as { width?: number | string; height?: number | string } | undefined;
@@ -1111,7 +100,6 @@ function WorkflowCanvas() {
   const [agentOpen, setAgentOpen] = useState(false);
   const [orbOpen, setOrbOpen] = useState(false);
   const [homeMenuOpen, setHomeMenuOpen] = useState(false);
-  const [userMenuOpen, setUserMenuOpen] = useState(false);
   const [miniMapOpen, setMiniMapOpen] = useState(false);
   const [materialLibraryOpen, setMaterialLibraryOpen] = useState(false);
   const [materialLibrary, setMaterialLibrary] = useState<MaterialLibraryItem[]>([]);
@@ -1127,8 +115,8 @@ function WorkflowCanvas() {
   const [agentInput, setAgentInput] = useState("");
   const [agentBusy, setAgentBusy] = useState(false);
   const [agentMessages, setAgentMessages] = useState<AgentMessage[]>([]);
-  const [agentCanUndo, setAgentCanUndo] = useState(false);
   const [agentAttachments, setAgentAttachments] = useState<AgentAttachment[]>([]);
+  const [agentCanUndo, setAgentCanUndo] = useState(false);
   const [suggestionOffset, setSuggestionOffset] = useState(0);
   const [selectedIds, setSelectedIds] = useState<string[]>([]);
   const [project, setProject] = useState<CanvasProject>();
@@ -1137,23 +125,6 @@ function WorkflowCanvas() {
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState("");
   const [, setCanUndoDelete] = useState(false);
-
-  useEffect(() => {
-    if (!userMenuOpen) return;
-    const closeOnOutside = (event: MouseEvent) => {
-      if ((event.target as HTMLElement).closest(".account-entry-wrap")) return;
-      setUserMenuOpen(false);
-    };
-    const closeOnEscape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setUserMenuOpen(false);
-    };
-    document.addEventListener("mousedown", closeOnOutside);
-    window.addEventListener("keydown", closeOnEscape);
-    return () => {
-      document.removeEventListener("mousedown", closeOnOutside);
-      window.removeEventListener("keydown", closeOnEscape);
-    };
-  }, [userMenuOpen]);
   const agentHasConversation = agentMessages.length > 0 || agentBusy;
   const saveLabel = {
     loading: "正在加载项目",
@@ -1167,19 +138,20 @@ function WorkflowCanvas() {
   const configRef = useRef(config);
   const materialLibraryRef = useRef(materialLibrary);
   const interruptedRef = useRef(new Set<string>());
+  const activePollingTasksRef = useRef(new Map<string, string>());
+  const pollTimersRef = useRef(new Map<string, number>());
   const messagesRef = useRef(agentMessages);
   const attachmentsRef = useRef(agentAttachments);
   const projectRef = useRef(project);
   const projectLoadedRef = useRef(false);
   const dirtyRef = useRef(false);
   const deletedCanvasStackRef = useRef<DeletedCanvasEntry[]>([]);
+  const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const agentSnapshotRef = useRef<{ nodes: WorkNode[]; edges: Edge[] } | null>(null);
   const executedToolCallIdsRef = useRef<Set<string>>(new Set());
-  const canvasClipboardRef = useRef<CanvasClipboard | undefined>(undefined);
   const generateRef = useRef<(id: string) => void>(() => undefined);
   const generateStoryboardRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
-  const saveProjectRef = useRef<((name?: string) => Promise<boolean>) | undefined>(undefined);
   const imagePicker = useRef<HTMLInputElement>(null);
   const videoPicker = useRef<HTMLInputElement>(null);
   const libraryPicker = useRef<HTMLInputElement>(null);
@@ -1261,10 +233,26 @@ function WorkflowCanvas() {
     dirtyRef.current = true;
     setSaveStatus("unsaved");
   }, []);
-  const update = useCallback((id: string, patch: Partial<WorkData>) => {
+  const update = useCallback((id: string, patch: Partial<StoredWorkData>) => {
     markUnsaved();
     setNodes((current) => current.map((node) => node.id === id ? { ...node, data: { ...node.data, ...patch } } : node));
   }, [markUnsaved, setNodes]);
+  const clearPollingTask = useCallback((nodeId: string, taskId?: string) => {
+    const activeTaskId = activePollingTasksRef.current.get(nodeId);
+    const targetTaskId = taskId ?? activeTaskId;
+    if (targetTaskId) {
+      const key = `${nodeId}:${targetTaskId}`;
+      const timer = pollTimersRef.current.get(key);
+      if (timer) window.clearTimeout(timer);
+      pollTimersRef.current.delete(key);
+    }
+    if (!taskId || activeTaskId === taskId) activePollingTasksRef.current.delete(nodeId);
+  }, []);
+  const clearAllPollingTasks = useCallback(() => {
+    for (const timer of pollTimersRef.current.values()) window.clearTimeout(timer);
+    pollTimersRef.current.clear();
+    activePollingTasksRef.current.clear();
+  }, []);
   const deleteCanvasNodes = useCallback((ids: string[]) => {
     const idSet = new Set(ids);
     nodesRef.current.forEach((node) => {
@@ -1273,6 +261,7 @@ function WorkflowCanvas() {
     const deletedNodes = nodesRef.current.filter((node) => idSet.has(node.id));
     if (!deletedNodes.length) return;
     const deletedEdges = edgesRef.current.filter((edge) => idSet.has(edge.source) || idSet.has(edge.target));
+    idSet.forEach((id) => clearPollingTask(id));
     deletedCanvasStackRef.current = [
       ...deletedCanvasStackRef.current.slice(-19),
       { nodes: deletedNodes, edges: deletedEdges },
@@ -1282,7 +271,7 @@ function WorkflowCanvas() {
     setNodes((current) => current.filter((node) => !idSet.has(node.id)));
     setEdges((current) => current.filter((edge) => !idSet.has(edge.source) && !idSet.has(edge.target)));
     setSelectedIds([]);
-  }, [markUnsaved, setEdges, setNodes]);
+  }, [clearPollingTask, markUnsaved, setEdges, setNodes]);
   const restoreDeletedCanvas = useCallback(() => {
     const entry = deletedCanvasStackRef.current.pop();
     if (!entry) return;
@@ -1310,12 +299,7 @@ function WorkflowCanvas() {
     const idSet = clipboardNodeIds(ids);
     const copiedNodes = nodesRef.current
       .filter((node) => idSet.has(node.id))
-      .map((node) => {
-        const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
-        ) as StoredWorkData;
-        return { ...node, selected: false, data };
-      });
+      .map((node) => ({ ...serializeWorkNode(node), selected: false }));
     if (!copiedNodes.length) return false;
     canvasClipboardRef.current = {
       nodes: copiedNodes,
@@ -1334,12 +318,7 @@ function WorkflowCanvas() {
     const idSet = clipboardNodeIds(ids);
     const libraryNodes = nodesRef.current
       .filter((node) => idSet.has(node.id))
-      .map((node) => {
-        const data = Object.fromEntries(
-          Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
-        ) as StoredWorkData;
-        return { ...node, selected: false, data };
-      }) as StoredWorkNode[];
+      .map((node) => ({ ...serializeWorkNode(node), selected: false }));
     if (!libraryNodes.length) return;
     const libraryEdges = edgesRef.current.filter((edge) => idSet.has(edge.source) && idSet.has(edge.target));
     const first = libraryNodes[0];
@@ -1518,87 +497,69 @@ function WorkflowCanvas() {
   }, [copyCanvasSelection, cutCanvasSelection, deleteCanvasNodes, pasteCanvasSelection, restoreDeletedCanvas, selectedIds]);
   const setCanvasZoom = useCallback((value: number) => reactFlow.zoomTo(Math.min(2, Math.max(0.25, value)), { duration: 160 }), [reactFlow]);
   const canvasSummary = useCallback(() => {
-    if (!nodesRef.current.length) return "画布当前没有节点。";
-    const lines = nodesRef.current.map((node) => {
-      const d = node.data;
-      const status = d.error ? "error" : d.busy ? "generating" : (d.url || d.result) ? "done" : "idle";
-      const connected = edgesRef.current
-        .filter((edge) => edge.source === node.id || edge.target === node.id)
-        .map((edge) => (edge.source === node.id ? edge.target : edge.source));
-      const fields = [
-        `id:${node.id}`,
-        `type:${d.kind}`,
-        `title:${d.title}`,
-        d.prompt ? `prompt:${d.prompt}` : "",
-        `status:${status}`,
-        d.url ? `outputUrl:${d.url}` : "",
-        `position:(${Math.round(node.position.x)},${Math.round(node.position.y)})`,
-        connected.length ? `connectedNodeIds:${connected.join(",")}` : "",
-      ].filter(Boolean).join(" | ");
-      return `- ${fields}`;
+    const list = nodesRef.current.map((node, index) => {
+      const kind = KIND_META[node.data.kind]?.title ?? node.data.kind;
+      const parts = [
+        node.data.prompt ? `提示词：${node.data.prompt}` : "",
+        node.data.result ? `结果：${node.data.result}` : "",
+        node.data.url ? `素材/结果：${node.data.title}` : "",
+        node.data.error ? `错误：${node.data.error}` : "",
+      ].filter(Boolean).join("；");
+      return `${index + 1}. ${kind}节点「${node.data.title}」：${parts || "暂无内容"}`;
     });
-    return `画布节点(后续工具用 id 作为 nodeId/sourceNodeId/targetNodeId 引用):\n${lines.join("\n")}`;
+    const edgeList = edgesRef.current.map((edge, index) => `${index + 1}. ${edge.source} -> ${edge.target}`);
+    return `${list.length ? list.join("\n") : "画布当前没有节点。"}\n\n连接关系：\n${edgeList.length ? edgeList.join("\n") : "暂无连接。"}`;
   }, []);
 
   const pollTask = useCallback((nodeId: string, taskId: string, attempt = 0) => {
-    window.setTimeout(async () => {
+    clearPollingTask(nodeId);
+    activePollingTasksRef.current.set(nodeId, taskId);
+    const pollingKey = `${nodeId}:${taskId}`;
+    const isCurrentPollingTask = () => activePollingTasksRef.current.get(nodeId) === taskId;
+    const stopPollingTask = () => {
+      pollTimersRef.current.delete(pollingKey);
+      if (isCurrentPollingTask()) activePollingTasksRef.current.delete(nodeId);
+    };
+    const timer = window.setTimeout(async () => {
+      pollTimersRef.current.delete(pollingKey);
+      if (!isCurrentPollingTask()) return;
       if (interruptedRef.current.has(nodeId)) return;
+      if (!nodesRef.current.some((node) => node.id === nodeId)) {
+        stopPollingTask();
+        return;
+      }
       try {
         const response = await fetch(`/api/tasks/${taskId}`, { cache: "no-store" });
         const task = await readJson(response);
         if (!response.ok) throw new Error(responseError(task, "TASK_NOT_FOUND"));
+        if (!isCurrentPollingTask()) return;
         if (interruptedRef.current.has(nodeId)) return;
-        if ((task.status === "completed" || task.status === "succeeded") && task.outputUrl) {
-          update(nodeId, { busy: false, url: task.outputUrl, result: undefined, error: "", canResume: false, actualCredits: task.actualCredits ?? null });
-          return;
-        }
-        if (task.status === "failed") {
-          update(nodeId, {
-            busy: false,
-            result: task.errorCode === "TIMEOUT" ? "已超时" : "生成失败",
-            error: task.errorCode === "TIMEOUT" ? "" : localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"),
-            canResume: false,
-            lastProviderStatus: task.lastProviderStatus ?? null,
-          });
-          return;
-        }
-        // timeout with canResume: stop polling and show resume button
-        if (task.status === "timeout") {
-          if (task.canResume) {
-            update(nodeId, {
-              busy: false,
-              result: "查询超时",
-              error: "",
-              canResume: true,
-              lastProviderStatus: task.lastProviderStatus ?? null,
-            });
-            return;
-          }
-          update(nodeId, {
-            busy: false,
-            result: `提交超时：${localizeError(task.errorCode ?? task.error ?? "AGNES_REQUEST_TIMEOUT")}`,
-            error: "",
-            canResume: false,
-            lastProviderStatus: task.lastProviderStatus ?? null,
-          });
+        const taskPatch = mapTaskToNodePatch(task);
+        if (!taskPatch.shouldPoll) {
+          update(nodeId, taskPatch.patch);
+          stopPollingTask();
           return;
         }
         if (attempt < VIDEO_POLL_MAX_ATTEMPTS) {
-          update(nodeId, { busy: true, result: statusLabel(task.status ?? "processing") });
+          update(nodeId, taskPatch.patch);
           pollTask(nodeId, taskId, attempt + 1);
         } else {
           update(nodeId, { busy: false, error: "视频生成超时，请稍后刷新任务或重试。" });
+          stopPollingTask();
         }
       } catch (error) {
         update(nodeId, { busy: false, error: error instanceof Error ? localizeError(error.message) : "查询视频任务失败" });
+        stopPollingTask();
       }
     }, VIDEO_POLL_INTERVAL_MS);
-  }, [update]);
+    pollTimersRef.current.set(pollingKey, timer);
+  }, [clearPollingTask, update]);
 
   const generate = useCallback(async (id: string) => {
     const node = nodesRef.current.find((item) => item.id === id);
     if (!node) return;
     if (node.data.busy) {
+      clearPollingTask(id);
       interruptedRef.current.add(id);
       update(id, { busy: false, result: "已打断生成同步，远端任务可能仍在后台继续。", error: "" });
       return;
@@ -1606,6 +567,7 @@ function WorkflowCanvas() {
     // If canResume and has taskId, call resume API instead of generating new
     if (node.data.canResume && node.data.taskId) {
       try {
+        interruptedRef.current.delete(id);
         update(id, { busy: true, result: "恢复查询中...", error: "", canResume: false });
         const response = await fetch(`/api/tasks/${node.data.taskId}/resume`, { method: "PATCH" });
         const body = await readJson(response);
@@ -1698,24 +660,19 @@ function WorkflowCanvas() {
           form.set("motionPrompt", motion.prompt);
         }
         const imageSources = upstream.filter((item) => item.data.url && !item.data.kind.includes("video"));
-        const shouldUseStartFrame = normalizedVideoOptions.mode === "first-frame" || normalizedVideoOptions.mode === "first-last";
-        const shouldUseEndFrame = normalizedVideoOptions.mode === "first-last";
-        const shouldUseReferences = normalizedVideoOptions.mode === "reference";
-        if (shouldUseStartFrame && node.data.startFrameUrl) {
+        if (node.data.startFrameUrl) {
           await appendImageFromUrl(form, "startFrame", node.data.startFrameUrl, node.data.startFrameName ?? "reference-start.png");
         }
-        if (shouldUseEndFrame && node.data.endFrameUrl) {
+        if (node.data.endFrameUrl) {
           await appendImageFromUrl(form, "endFrame", node.data.endFrameUrl, node.data.endFrameName ?? "reference-end.png");
         }
-        if (shouldUseReferences) {
-          const nodeReferenceUrls = node.data.referenceFrameUrls ?? [];
-          for (const [index, url] of nodeReferenceUrls.entries()) {
-            await appendImageFromUrl(form, "referenceImages", url, node.data.referenceFrameNames?.[index] || `reference-${index + 1}.png`, "append");
-          }
-          for (const [index, source] of imageSources.entries()) {
-            if (source.data.url) {
-              await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
-            }
+        const nodeReferenceUrls = node.data.referenceFrameUrls ?? [];
+        for (const [index, url] of nodeReferenceUrls.entries()) {
+          await appendImageFromUrl(form, "referenceImages", url, node.data.referenceFrameNames?.[index] || `reference-${index + 1}.png`, "append");
+        }
+        for (const [index, source] of imageSources.entries()) {
+          if (source.data.url) {
+            await appendImageFromUrl(form, "referenceImages", String(source.data.url), source.data.title || `connected-reference-${index + 1}.png`, "append");
           }
         }
         response = await fetch("/api/videos/generate", { method: "POST", body: form });
@@ -1728,14 +685,10 @@ function WorkflowCanvas() {
       } else {
         update(id, { busy: false, result: body.text, url: body.outputUrl, error: "" });
       }
-      // auto-save after task submission
-      setTimeout(() => { if (saveProjectRef.current) void saveProjectRef.current(); }, 80);
     } catch (error) {
       update(id, { busy: false, error: error instanceof Error ? localizeError(error.message) : "生成失败" });
-      // auto-save on task failure
-      setTimeout(() => { if (saveProjectRef.current) void saveProjectRef.current(); }, 80);
     }
-  }, [pollTask, update]);
+  }, [clearPollingTask, pollTask, update]);
   useEffect(() => {
     generateRef.current = generate;
   }, [generate]);
@@ -1758,11 +711,10 @@ function WorkflowCanvas() {
       const body = await readJson(response) as { storyboardShots?: StoryboardShot[]; error?: string; errorCode?: string };
       if (!response.ok || !body.storyboardShots?.length) throw new Error(responseError(body, "INVALID_JSON_RESPONSE"));
       const storyboardId = randomUuid();
-      const position = { x: source.position.x + 420, y: source.position.y };
       const storyboardNode: WorkNode = {
         id: storyboardId,
         type: "work",
-        position,
+        position: { x: source.position.x + 420, y: source.position.y },
         data: {
           kind: "storyboard",
           title: KIND_META.storyboard.title,
@@ -1955,7 +907,7 @@ function WorkflowCanvas() {
       } catch (error) {
         setSaveStatus("error");
         window.alert(error instanceof Error ? error.message : "上传素材失败");
-        return;
+        return undefined;
       }
     }
     const videoDefaults = kind === "video" ? sanitizeVideoOptionsForModel("kling-v3-omni", {}) : undefined;
@@ -2056,7 +1008,7 @@ function WorkflowCanvas() {
       position: { x: position.x - 140, y: position.y - 70 },
       data: {
         kind: "video",
-        title: `${KIND_META.video.title} ${shot.shotNumber}`,
+        title: `镜头 ${shot.shotNumber}`,
         prompt: shot.videoPrompt,
         ratio: normalized.aspectRatio,
         quality: normalized.resolution,
@@ -2142,14 +1094,12 @@ function WorkflowCanvas() {
 
   const canvasProjectData = useCallback(() => {
     const storedNodes = nodesRef.current.map((node) => {
-      const data = Object.fromEntries(
-        Object.entries(node.data).filter(([key]) => !["uploadAsset", "update", "remove", "generate", "generateStoryboard"].includes(key)),
-      ) as StoredWorkData;
+      const storedNode = serializeWorkNode(node);
       return {
-        ...node,
+        ...storedNode,
         selected: false,
         data: {
-          ...data,
+          ...storedNode.data,
           busy: false,
           settingsOpen: false,
           negativePromptOpen: false,
@@ -2210,69 +1160,13 @@ function WorkflowCanvas() {
         const task = await readJson(response);
         if (!response.ok) return node;
 
-        if ((task.status === "completed" || task.status === "succeeded") && task.outputUrl) {
-          changed = true;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              busy: false,
-              url: task.outputUrl,
-              result: undefined,
-              error: "",
-              canResume: false,
-              lastProviderStatus: task.lastProviderStatus ?? "completed",
-            },
-          };
-        }
-
-        if (task.status === "failed" || task.status === "cancelled") {
-          changed = true;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              busy: false,
-              result: task.errorCode === "TIMEOUT" ? "已超时" : "生成失败",
-              error: task.errorCode === "TIMEOUT" ? "" : localizeError(task.errorCode ?? task.error ?? "AGNES_VIDEO_FAILED"),
-              canResume: false,
-              lastProviderStatus: task.lastProviderStatus ?? task.status,
-            },
-          };
-        }
-
-        if (task.status === "timeout") {
-          changed = true;
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              busy: false,
-              result: task.canResume
-                ? "查询超时"
-                : `提交超时：${localizeError(task.errorCode ?? task.error ?? "AGNES_REQUEST_TIMEOUT")}`,
-              error: "",
-              canResume: Boolean(task.canResume),
-              lastProviderStatus: task.lastProviderStatus ?? null,
-            },
-          };
-        }
-
-        if (["pending", "submitting", "queued", "processing", "running", "downloading"].includes(task.status)) {
-          changed = true;
+        const taskPatch = mapTaskToNodePatch(task);
+        if (!taskPatch.changed) return node;
+        changed = true;
+        if (taskPatch.shouldPoll) {
           polling.push({ nodeId: node.id, taskId: node.data.taskId });
-          return {
-            ...node,
-            data: {
-              ...node.data,
-              busy: true,
-              result: statusLabel(task.status),
-              error: "",
-              canResume: false,
-              lastProviderStatus: task.lastProviderStatus ?? task.status,
-            },
-          };
         }
+        return { ...node, data: { ...node.data, ...taskPatch.patch } };
       } catch {
         return node;
       }
@@ -2283,6 +1177,7 @@ function WorkflowCanvas() {
 
   useEffect(() => {
     let cancelled = false;
+    clearAllPollingTasks();
 
     const loadProject = async () => {
       projectLoadedRef.current = false;
@@ -2308,7 +1203,7 @@ function WorkflowCanvas() {
 
       const hydratedNodes = loaded.canvasData.nodes.map((node) => {
         const model = node.data.kind === "image" || node.data.kind === "video"
-          ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "agnes-video-v2.0"))
+          ? getModelDefinition(node.data.model ?? (node.data.kind === "image" ? "agnes-image-2.1-flash" : "kling-v3-omni"))
           : undefined;
         const videoOptions = node.data.kind === "video" && model ? sanitizeVideoOptionsForModel(model.id, {
           mode: node.data.videoMode,
@@ -2319,23 +1214,23 @@ function WorkflowCanvas() {
           hasEndFrame: Boolean(node.data.endFrameUrl),
           hasImageInput: Boolean(node.data.referenceFrameUrls?.length || node.data.hasImageInput),
         }) : undefined;
-        const quality = videoOptions?.resolution ?? (model && !model.resolutions.includes(node.data.quality)
+        const quality = model && !videoOptions && !model.resolutions.includes(node.data.quality)
           ? model.defaultResolution
-          : node.data.quality);
+          : node.data.quality;
         return {
           ...node,
           data: {
             ...node.data,
             ratio: videoOptions?.aspectRatio ?? node.data.ratio,
-            quality,
-            videoMode: videoOptions?.mode ?? node.data.videoMode,
+            quality: videoOptions?.resolution ?? quality,
             duration: videoOptions?.duration ?? node.data.duration,
+            videoMode: videoOptions?.mode ?? node.data.videoMode,
             busy: false,
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
             remove,
             generate,
-            generateStoryboard,
+            generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
           },
         };
       }) as WorkNode[];
@@ -2350,15 +1245,15 @@ function WorkflowCanvas() {
         } catch {
           modelId = fallbackModel;
         }
-        const options = normalizeModelOptions(modelId, {
+        const imageOptions = normalizeModelOptions(modelId, {
           ratio: launchKind === "video" ? "16:9" : "1:1",
           resolution: launchKind === "video" ? "720p" : "1k",
           duration: 5,
         });
         const videoOptions = launchKind === "video" ? sanitizeVideoOptionsForModel(modelId, {
-          aspectRatio: options.ratio,
-          resolution: options.resolution,
-          duration: options.duration,
+          aspectRatio: "16:9",
+          resolution: "720p",
+          duration: 5,
         }) : undefined;
         launchNodes = [{
           id: randomUuid(),
@@ -2368,18 +1263,18 @@ function WorkflowCanvas() {
             kind: launchKind,
             title: KIND_META[launchKind].title,
             prompt: launchPrompt,
-            ratio: videoOptions?.aspectRatio ?? options.ratio,
-            quality: videoOptions?.resolution ?? options.resolution,
+            ratio: videoOptions?.aspectRatio ?? imageOptions.ratio,
+            quality: videoOptions?.resolution ?? imageOptions.resolution,
             model: modelId,
             videoMode: videoOptions?.mode,
             motionPreset: launchKind === "video" ? "auto" : undefined,
-            duration: launchKind === "video" ? videoOptions?.duration ?? options.duration : 0,
+            duration: launchKind === "video" ? videoOptions?.duration ?? imageOptions.duration : 0,
             negativePrompt: "",
             uploadAsset: (file) => uploadAssetRef.current(file),
             update,
             remove,
             generate,
-            generateStoryboard,
+            generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
           },
         }];
         launchChanged = true;
@@ -2411,8 +1306,11 @@ function WorkflowCanvas() {
     };
 
     loadProject().catch(() => setSaveStatus("error"));
-    return () => { cancelled = true; };
-  }, [generate, generateStoryboard, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
+    return () => {
+      cancelled = true;
+      clearAllPollingTasks();
+    };
+  }, [clearAllPollingTasks, generate, launchKind, launchModel, launchPrompt, pollTask, reactFlow, reconcileLoadedTaskNodes, remove, requestedProjectId, saveProject, setEdges, setNodes, update]);
 
   useEffect(() => {
     const interval = window.setInterval(() => {
@@ -2459,7 +1357,7 @@ function WorkflowCanvas() {
     const log: string[] = [];
     const validNodeId = (id: unknown): string | null => {
       if (typeof id !== "string" || !id) return null;
-      return nodesRef.current.some((n) => n.id === id) ? id : null;
+      return nodesRef.current.some((node) => node.id === id) ? id : null;
     };
     for (const call of toolCalls) {
       const fn = call.function;
@@ -2477,13 +1375,13 @@ function WorkflowCanvas() {
       try {
         args = JSON.parse(fn?.arguments || "{}");
       } catch {
-        log.push("指令参数有误,已跳过");
+        log.push("指令参数有误，已跳过");
         continue;
       }
       try {
         if (name === "addNode") {
           const type = ["text", "image", "video"].includes(args.type as string) ? (args.type as Kind) : null;
-          if (!type) { log.push("节点类型无效,已跳过"); continue; }
+          if (!type) { log.push("节点类型无效，已跳过"); continue; }
           const pos = args.position as { x?: number; y?: number } | undefined;
           const position = pos && typeof pos.x === "number" && typeof pos.y === "number" ? { x: pos.x, y: pos.y } : undefined;
           const newId = await addNode(type, position);
@@ -2492,9 +1390,9 @@ function WorkflowCanvas() {
           log.push(`已在画布中生成${KIND_META[type].title}节点${typeof args.prompt === "string" && args.prompt ? `「${args.prompt.slice(0, 20)}」` : ""}`);
         } else if (name === "updateNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
           const patchSrc = args.patch && typeof args.patch === "object" ? (args.patch as Record<string, unknown>) : {};
-          const patch: Partial<WorkData> = {};
+          const patch: Partial<StoredWorkData> = {};
           if (typeof patchSrc.prompt === "string") patch.prompt = patchSrc.prompt;
           if (typeof patchSrc.title === "string") patch.title = patchSrc.title;
           if (typeof patchSrc.ratio === "string" && RATIOS.includes(patchSrc.ratio as Ratio)) patch.ratio = patchSrc.ratio as Ratio;
@@ -2502,23 +1400,23 @@ function WorkflowCanvas() {
           else log.push("节点无需更新");
         } else if (name === "removeNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
           remove(id);
           log.push("已删除节点");
         } else if (name === "generateNode") {
           const id = validNodeId(args.nodeId);
-          if (!id) { log.push("找不到该节点,已跳过"); continue; }
+          if (!id) { log.push("找不到该节点，已跳过"); continue; }
           generate(id);
           log.push("已开始生成");
         } else if (name === "addEdge") {
           const from = validNodeId(args.sourceNodeId);
           const to = validNodeId(args.targetNodeId);
-          if (!from || !to) { log.push("找不到节点,已跳过"); continue; }
+          if (!from || !to) { log.push("找不到节点，已跳过"); continue; }
           setEdges((current) => addEdge({ id: `${from}-${to}-${randomUuid()}`, source: from, target: to, animated: true }, current));
           log.push("已连接节点");
         }
-      } catch (err) {
-        log.push(`执行出错了:${err instanceof Error ? err.message : "未知错误"}`);
+      } catch (error) {
+        log.push(`执行出错了：${error instanceof Error ? error.message : "未知错误"}`);
       }
     }
     return log;
@@ -2550,17 +1448,19 @@ function WorkflowCanvas() {
       for (const node of selectedImageNodes) {
         try {
           canvasImageParts.push({ type: "image_url", image_url: { url: await localUrlToDataUrl(node.data.url as string) } });
-        } catch { /* skip unreadable image */ }
+        } catch {
+          // Skip unreadable local references.
+        }
       }
       const textPart = [
-        "你是 Genora Agent,运行在画布旁。除了回答问题,你还可以调用工具直接操纵画布:addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时,请调用对应工具,并用一句话说明你做了什么。",
+        "你是 Genora Agent，运行在画布旁。除了回答问题，你还可以调用工具直接操纵画布：addNode(添加节点)、updateNode(改字段)、removeNode(删除)、generateNode(触发生成)、addEdge(连线)。需要创建/修改/生成画布内容时，请调用对应工具，并用一句话说明你做了什么。",
         "",
         "【画布内容】",
         canvasSummary(),
         "",
         "【对话附件】",
         attachmentText,
-        ...(selectedImageNodes.length ? ["", "【画布视觉】已附上选中的图片,你可以直接看图来分析画面、优化提示词或生成创意。"] : []),
+        ...(selectedImageNodes.length ? ["", "【画布视觉】已附上选中的图片，你可以直接看图来分析画面、优化提示词或生成创意。"] : []),
         "",
         "【上下文】",
         history,
@@ -2588,7 +1488,7 @@ function WorkflowCanvas() {
         setAgentCanUndo(true);
         actionLog = await dispatchAgentToolCalls(toolCalls);
       }
-      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "好的,已经帮你处理好。" : "我已经收到。");
+      const baseText = typeof body.text === "string" && body.text.trim() ? body.text : (actionLog.length ? "好的，已经帮你处理好。" : "我已经收到。");
       const footer = actionLog.length ? `\n${actionLog.join("；")}` : "";
       setAgentMessages((current) => [...current, { role: "assistant", content: baseText + footer }]);
     } catch (error) {
@@ -2709,7 +1609,7 @@ function WorkflowCanvas() {
         defaultEdgeOptions={{ animated: true }}
         proOptions={{ hideAttribution: true }}
       >
-        {gridVisible && <Background variant={BackgroundVariant.Dots} gap={22} size={zoom < 0.55 ? 1.9 : 1.15} color={zoom < 0.55 ? "#ffffff42" : "#ffffff2e"} />}
+        {gridVisible && <Background variant={BackgroundVariant.Dots} gap={22} size={1} color="#ffffff24" />}
         {miniMapOpen && <MiniMap position="bottom-right" pannable zoomable nodeColor="#8f7df5" maskColor="#050507a8" />}
         {!materialLibraryOpen && (
           <Panel position="top-left" className="sidebar glass">
@@ -2851,22 +1751,6 @@ function WorkflowCanvas() {
         <button title="适配画布" onClick={() => reactFlow.fitView({ duration: 220, maxZoom: 0.82 })}><Icon name="fit" /></button>
         <input aria-label="缩放画布" type="range" min="25" max="200" value={Math.round(zoom * 100)} onChange={(event) => setCanvasZoom(Number(event.target.value) / 100)} />
         <button title="画布设置" className={orbOpen ? "selected" : ""} onClick={() => setOrbOpen((current) => !current)}><Icon name="settings" /></button>
-      </div>
-
-      <div className={`account-entry-wrap ${userMenuOpen ? "open" : ""}`}>
-        <button className="account-entry-button" type="button" aria-label="用户账号" title="用户账号" onClick={() => setUserMenuOpen((current) => !current)}>
-          <Icon name="user" />
-        </button>
-        {userMenuOpen && (
-          <div className="account-popover glass">
-            <div className="account-popover-head">
-              <span className="account-avatar">G</span>
-              <div><b>{TEMP_USER_NAME}</b><small>genora.local</small></div>
-            </div>
-            <Link href="/" onClick={() => setUserMenuOpen(false)}><Icon name="user" />个人主页</Link>
-            <button type="button" onClick={() => setUserMenuOpen(false)}><Icon name="logout" />退出登录</button>
-          </div>
-        )}
       </div>
 
       {orbOpen && (

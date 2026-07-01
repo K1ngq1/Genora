@@ -485,6 +485,7 @@ nextjs-portal,#next-logo,[data-nextjs-devtools-button],[data-nextjs-toast]{displ
 @media(max-width:760px){
   .canvas-node.storyboard{width:min(680px,calc(100vw - 24px))}
   .storyboard-table-head,.storyboard-table-row{grid-template-columns:48px 1fr 1fr 58px 1.1fr}
+}
 /* Unified canvas capsule controls. */
 .canvas-node.image,.canvas-node.video{
   --canvas-pill-height:42px;

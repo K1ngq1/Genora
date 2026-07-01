@@ -1,7 +1,13 @@
 import { existsSync, readFileSync } from "node:fs";
 import assert from "node:assert/strict";
 
-const workspace = readFileSync("app/workspace/page.tsx", "utf8");
+const workspace = [
+  "app/workspace/page.tsx",
+  "features/workspace/workflow-node.tsx",
+  "features/workspace/workspace-types.ts",
+  "features/workspace/workspace-constants.ts",
+  "features/workspace/workspace-utils.ts",
+].map((file) => readFileSync(file, "utf8")).join("\n");
 const css = readFileSync("app/workflow.css", "utf8");
 const apiPath = "app/api/storyboards/generate/route.ts";
 

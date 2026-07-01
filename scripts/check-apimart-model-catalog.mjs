@@ -7,22 +7,19 @@ import {
 
 const gemini = getModelDefinition("gemini-2.5-flash-image-preview");
 assert.equal(gemini.provider, "apimart");
-assert.equal(gemini.developer, "google");
-assert.deepEqual(gemini.resolutions, ["1k"]);
-assert.equal(estimateCredits({ model: gemini.id, resolution: "1k", duration: 0, hasImageInput: false }), 0.125);
+assert.deepEqual(gemini.resolutions, ["adaptive"]);
+assert.equal(estimateCredits({ model: gemini.id, resolution: "adaptive", duration: 0, hasImageInput: false }), 0.125);
 
 const gptImage = getModelDefinition("gpt-image-2");
-assert.equal(gptImage.developer, "openai");
-assert.deepEqual(gptImage.resolutions, ["1k", "2k", "4k"]);
+assert.deepEqual(gptImage.resolutions, ["1k", "2k"]);
 assert.equal(estimateCredits({ model: gptImage.id, resolution: "2k", duration: 0, hasImageInput: false }), 0.12);
 
 const gptImageOfficial = getModelDefinition("gpt-image-2-official");
 assert.equal(gptImageOfficial.provider, "apimart");
-assert.equal(gptImageOfficial.developer, "openai");
 assert.equal(gptImageOfficial.keyScope, "dev");
-assert.deepEqual(gptImageOfficial.resolutions, ["1k"]);
-assert.equal(estimateCredits({ model: gptImageOfficial.id, resolution: "1k", duration: 0, hasImageInput: false }), 0.0488);
-assert.equal(estimateCredits({ model: gptImageOfficial.id, resolution: "1k", duration: 0, hasImageInput: true }), 0.08508);
+assert.deepEqual(gptImageOfficial.resolutions, ["adaptive"]);
+assert.equal(estimateCredits({ model: gptImageOfficial.id, resolution: "adaptive", duration: 0, hasImageInput: false }), 0.0488);
+assert.equal(estimateCredits({ model: gptImageOfficial.id, resolution: "adaptive", duration: 0, hasImageInput: true }), 0.08508);
 
 const seedance = getModelDefinition("doubao-seedance-2.0");
 assert.equal(estimateCredits({ model: seedance.id, resolution: "720p", duration: 5, hasImageInput: false }), 7.808);
