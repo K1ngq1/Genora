@@ -18,9 +18,11 @@ export function ensureVisitorId(request: Request, headers: Headers = new Headers
   const existing = getVisitorId(request);
   if (existing) return existing;
   const id = crypto.randomUUID();
+  // Secure only in production: setting it under local http would drop the cookie.
+  const secure = process.env.NODE_ENV === "production" ? "; Secure" : "";
   headers.append(
     "Set-Cookie",
-    `${VISITOR_COOKIE}=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${VISITOR_MAX_AGE}`,
+    `${VISITOR_COOKIE}=${id}; HttpOnly; SameSite=Lax; Path=/; Max-Age=${VISITOR_MAX_AGE}${secure}`,
   );
   return id;
 }
