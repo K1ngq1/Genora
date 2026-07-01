@@ -156,24 +156,46 @@ function apiKey(service: "image" | "video", model?: string) {
 
 type ApimartRequestInit = { method?: string; headers?: Record<string, string>; body?: Buffer | string };
 
+const APIMART_RETRYABLE_STATUS = new Set([429, 500, 502, 503, 504]);
+const APIMART_MAX_RETRIES = 3;
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
 async function request(path: string, service: "image" | "video", model?: string, init?: ApimartRequestInit) {
-  let response;
-  try {
-    response = await apimartHttpRequest(`${APIMART_API_BASE}${path}`, {
-      ...init,
-      headers: { Authorization: `Bearer ${apiKey(service, model)}`, ...init?.headers },
-    });
-  } catch (error) {
-    throw new AppError("APIMART_UPSTREAM_ERROR", 502, sanitizeApimartDetail(error instanceof Error ? error.message : error));
+  const url = `${APIMART_API_BASE}${path}`;
+  const key = apiKey(service, model);
+  for (let attempt = 0; attempt <= APIMART_MAX_RETRIES; attempt += 1) {
+    let response;
+    try {
+      response = await apimartHttpRequest(url, {
+        ...init,
+        headers: { Authorization: `Bearer ${key}`, ...init?.headers },
+      });
+    } catch (error) {
+      // Network/timeout error: retryable up to APIMART_MAX_RETRIES.
+      const detail = sanitizeApimartDetail(error instanceof Error ? error.message : error);
+      if (attempt === APIMART_MAX_RETRIES) throw new AppError("APIMART_UPSTREAM_ERROR", 502, detail);
+      await wait(1200 * 2 ** attempt);
+      continue;
+    }
+    const text = response.body.toString("utf8");
+    let body: unknown;
+    try { body = text ? JSON.parse(text) : {}; } catch { throw new AppError("INVALID_JSON_RESPONSE", 502); }
+    if (response.status < 200 || response.status >= 300) {
+      const code = response.status === 402 ? "APIMART_INSUFFICIENT_CREDITS" : response.status === 429 ? "APIMART_RATE_LIMIT" : "APIMART_UPSTREAM_ERROR";
+      // Retry transient failures (429/5xx); respect Retry-After when present.
+      if (APIMART_RETRYABLE_STATUS.has(response.status) && attempt < APIMART_MAX_RETRIES) {
+        const retryAfter = Number(response.headers["retry-after"]);
+        await wait(Number.isFinite(retryAfter) && retryAfter > 0 ? retryAfter * 1000 : 1200 * 2 ** attempt);
+        continue;
+      }
+      throw new AppError(code, response.status, upstreamMessage(body, text));
+    }
+    return body;
   }
-  const text = response.body.toString("utf8");
-  let body: unknown;
-  try { body = text ? JSON.parse(text) : {}; } catch { throw new AppError("INVALID_JSON_RESPONSE", 502); }
-  if (response.status < 200 || response.status >= 300) {
-    const code = response.status === 402 ? "APIMART_INSUFFICIENT_CREDITS" : response.status === 429 ? "APIMART_RATE_LIMIT" : "APIMART_UPSTREAM_ERROR";
-    throw new AppError(code, response.status, upstreamMessage(body, text));
-  }
-  return body;
+  throw new AppError("APIMART_UPSTREAM_ERROR", 502, "APIMART 多次重试后仍失败");
 }
 
 export async function uploadApimartImage(file: Blob, filename: string, service: "image" | "video", model?: string) {

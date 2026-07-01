@@ -18,6 +18,7 @@ export const ERROR_MESSAGES_ZH = {
   EMPTY_IMAGE_PROMPT: "请输入图片提示词",
   EMPTY_VIDEO_PROMPT: "请输入视频提示词",
   EMPTY_AGENT_PROMPT: "请输入 Agent 提示词",
+  PROMPT_TOO_LONG: "提示词过长，请精简后重试",
   UNSUPPORTED_AGENT_MODEL: "不支持的 Agent 模型",
   INVALID_IMAGE_FORMAT: "图片仅支持 PNG、JPEG 或 WebP 格式",
   IMAGE_UPLOAD_TOO_LARGE: "上传图片不能超过 10 MB",

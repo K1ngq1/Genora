@@ -5,6 +5,9 @@ export async function GET(
   context: { params: Promise<{ remoteTaskId: string }> }
 ) {
   const { remoteTaskId } = await context.params;
+  if (!/^[a-zA-Z0-9_-]+$/.test(remoteTaskId)) {
+    return Response.json({ ok: false, error: "INVALID_TASK_ID" }, { status: 400 });
+  }
 
   const apiKey = process.env.AGNES_VIDEO_V2_0_API_KEY?.trim();
   if (!apiKey) {

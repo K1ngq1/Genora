@@ -1,11 +1,17 @@
 ﻿import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
-import { publicTask } from "@/lib/tasks";
+import { providerLog } from "@/lib/provider-log";
+import { ownsTask, publicTask } from "@/lib/tasks";
+import { getVisitorId } from "@/lib/visitor";
 
-export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const { id } = await context.params;
+  const visitorId = getVisitorId(request);
   const task = await db.task.findUnique({ where: { id } });
-  if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  if (!ownsTask(task, visitorId)) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   if (task.type === "image") {
     return errorResponse(new AppError("UNKNOWN_ERROR", 400, "生图任务不支持恢复查询"), 400);

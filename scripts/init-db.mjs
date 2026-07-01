@@ -17,6 +17,7 @@ db.exec(`
     "outputPath" TEXT,
     "error" TEXT,
     "canResume" BOOLEAN NOT NULL DEFAULT false,
+    "visitorId" TEXT,
     "createdAt" DATETIME NOT NULL DEFAULT CURRENT_TIMESTAMP,
     "updatedAt" DATETIME NOT NULL
   );
@@ -47,5 +48,15 @@ db.exec(`
   CREATE UNIQUE INDEX IF NOT EXISTS "Asset_path_key" ON "Asset"("path");
   CREATE INDEX IF NOT EXISTS "Asset_projectId_idx" ON "Asset"("projectId");
 `);
+// visitorId column for anonymous task isolation (added after the initial
+// rollout — CREATE TABLE IF NOT EXISTS will not add it to pre-existing DBs).
+try {
+  db.exec(`ALTER TABLE "Task" ADD COLUMN "visitorId" TEXT;`);
+} catch (err) {
+  const msg = String((err && err.message) || "");
+  if (!/duplicate column/i.test(msg)) throw err;
+}
+db.exec(`CREATE INDEX IF NOT EXISTS "Task_visitorId_createdAt_idx" ON "Task"("visitorId", "createdAt");`);
+
 db.close();
 console.log(`SQLite initialized: ${dbPath}`);
