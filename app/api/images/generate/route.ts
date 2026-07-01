@@ -7,6 +7,7 @@ import { scheduleImageTask } from "@/lib/image-task-runner";
 import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
 import { preflightPublicImageUrl } from "@/lib/public-image-url";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
+import { promptLengthResponse } from "@/lib/payload-limits";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { ensureVisitorId } from "@/lib/visitor";
@@ -48,6 +49,8 @@ export async function POST(request: Request) {
     const prompt = String(body.prompt ?? "").trim();
     const modelId = String(body.model ?? DEFAULT_MODEL);
     if (!prompt) return errorResponse(new AppError("EMPTY_IMAGE_PROMPT", 400), 400);
+    const tooLong = promptLengthResponse(prompt);
+    if (tooLong) return tooLong;
 
     const model = getModelDefinition(modelId);
     if (model.kind !== "image") throw new AppError("UNKNOWN_ERROR", 400, "Model is not an image model");

@@ -1,6 +1,7 @@
 import { generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
+import { promptLengthResponse } from "@/lib/payload-limits";
 
 type StoryboardShot = {
   id: string;
@@ -51,6 +52,8 @@ export async function POST(request: Request) {
   const body = await request.json();
   const sourceText = String(body.text ?? body.prompt ?? "").trim();
   if (!sourceText) return errorResponse(new AppError("EMPTY_TEXT_PROMPT", 400), 400);
+  const tooLong = promptLengthResponse(sourceText);
+  if (tooLong) return tooLong;
 
   const prompt = [
     "You are a storyboard planner for short AI-generated videos.",

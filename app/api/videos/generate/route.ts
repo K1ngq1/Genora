@@ -1,6 +1,7 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
+import { MAX_REFERENCE_IMAGES, promptLengthResponse } from "@/lib/payload-limits";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { ensureVisitorId } from "@/lib/visitor";
@@ -41,6 +42,8 @@ export async function POST(request: Request) {
   const prompt = String(form.get("prompt") ?? "").trim();
   const negativePrompt = String(form.get("negativePrompt") ?? "").trim();
   if (!prompt) return errorResponse(new AppError("EMPTY_VIDEO_PROMPT", 400), 400);
+  const tooLong = promptLengthResponse(prompt);
+  if (tooLong) return tooLong;
 
   const modelId = String(form.get("model") ?? "kling-v3-omni");
   let model;
@@ -84,7 +87,7 @@ export async function POST(request: Request) {
       endFramePath = saved.path;
       endFrameName = saved.originalName;
     }
-    const refUploads = form.getAll("referenceImages");
+    const refUploads = form.getAll("referenceImages").slice(0, MAX_REFERENCE_IMAGES);
     for (const item of refUploads) {
       if (item instanceof File && item.size > 0) {
         referenceImages.push(await saveImageUpload(item));

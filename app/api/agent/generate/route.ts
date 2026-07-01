@@ -1,6 +1,7 @@
 import { generateAgnesImage, generateAgnesMessages, generateAgnesMessagesWithTools, generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
+import { promptLengthResponse } from "@/lib/payload-limits";
 import { saveBuffer, storageUrl } from "@/lib/storage";
 
 const TEXT_MODEL = "agnes-2.0-flash";
@@ -17,6 +18,8 @@ export async function POST(request: Request) {
   const prompt = String(body.prompt ?? "").trim();
   const messages = Array.isArray(body.messages) ? body.messages : undefined;
   if (!prompt && !messages?.length) return errorResponse(new AppError("EMPTY_AGENT_PROMPT", 400), 400);
+  const tooLong = promptLengthResponse(prompt);
+  if (tooLong) return tooLong;
   try {
     if (model === TEXT_MODEL) {
       const tools = Array.isArray(body.tools) ? body.tools : undefined;
