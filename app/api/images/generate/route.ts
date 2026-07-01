@@ -5,6 +5,7 @@ import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { scheduleImageTask } from "@/lib/image-task-runner";
 import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
+import { preflightPublicImageUrl } from "@/lib/public-image-url";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
 import { getImageSize, imageQualityFallbacks, normalizeImageQuality } from "@/lib/generation-quality";
@@ -14,14 +15,24 @@ const MAX_REFERENCE_SIZE = 20 * 1024 * 1024;
 
 async function persistReference(url: string, requestUrl: string) {
   const resolved = new URL(url, requestUrl);
-  if (!new Set(["http:", "https:", "data:"]).has(resolved.protocol)) throw new AppError("INVALID_IMAGE_FORMAT", 400);
-  const response = await fetch(resolved);
+  if (resolved.protocol === "data:") {
+    // Inline base64 image: no network request, no SSRF — decode directly with size cap.
+    const dataMatch = /^data:(image\/[a-z+]+);base64,(.+)$/i.exec(resolved.href);
+    if (!dataMatch) throw new AppError("INVALID_IMAGE_FORMAT", 400);
+    const bytes = Buffer.from(dataMatch[2], "base64");
+    if (bytes.length > MAX_REFERENCE_SIZE) throw new AppError("IMAGE_UPLOAD_TOO_LARGE", 400);
+    const mime = dataMatch[1].toLowerCase();
+    const extension = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
+    return saveBuffer("uploads", `${crypto.randomUUID()}.${extension}`, bytes);
+  }
+  // http/https reference: enforce public HTTPS with per-redirect SSRF check + content-type validation.
+  const preflight = await preflightPublicImageUrl(resolved.toString());
+  const response = await fetch(preflight.url, { signal: AbortSignal.timeout(30_000) });
   if (!response.ok) throw new AppError("DOWNLOAD_FAILED", 400);
   const bytes = Buffer.from(await response.arrayBuffer());
   if (bytes.length > MAX_REFERENCE_SIZE) throw new AppError("IMAGE_UPLOAD_TOO_LARGE", 400);
-  const mime = response.headers.get("content-type")?.split(";")[0] ?? "image/png";
-  const extension = mime === "image/jpeg" ? "jpg" : mime === "image/webp" ? "webp" : "png";
-  const sourceExtension = resolved.protocol === "data:" ? "" : path.extname(resolved.pathname);
+  const extension = preflight.contentType === "image/jpeg" ? "jpg" : preflight.contentType === "image/webp" ? "webp" : "png";
+  const sourceExtension = path.extname(new URL(preflight.url).pathname);
   return saveBuffer("uploads", `${crypto.randomUUID()}${sourceExtension || `.${extension}`}`, bytes);
 }
 
