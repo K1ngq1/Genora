@@ -36,11 +36,12 @@ export function responseError(body: Record<string, unknown>, fallback = "UNKNOWN
 }
 
 export function serializeWorkData(data: WorkData): StoredWorkData {
-  const { uploadAsset, update, remove, generate, ...stored } = data;
+  const { uploadAsset, update, remove, generate, generateStoryboard, ...stored } = data;
   void uploadAsset;
   void update;
   void remove;
   void generate;
+  void generateStoryboard;
   return stored;
 }
 

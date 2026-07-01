@@ -67,6 +67,7 @@ import type {
   NodeContextMenuState,
   Ratio,
   SaveStatus,
+  StoryboardShot,
   StoredWorkData,
   ThemeTone,
   WorkNode,
@@ -149,6 +150,7 @@ function WorkflowCanvas() {
   const agentSnapshotRef = useRef<{ nodes: WorkNode[]; edges: Edge[] } | null>(null);
   const executedToolCallIdsRef = useRef<Set<string>>(new Set());
   const generateRef = useRef<(id: string) => void>(() => undefined);
+  const generateStoryboardRef = useRef<(id: string) => void>(() => undefined);
   const uploadAssetRef = useRef<(file: File) => Promise<string>>(async () => { throw new Error("PROJECT_NOT_READY"); });
   const imagePicker = useRef<HTMLInputElement>(null);
   const videoPicker = useRef<HTMLInputElement>(null);
@@ -370,6 +372,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
     })) as WorkNode[];
     const pastedEdges = snapshot.edges.map((edge) => ({
@@ -414,6 +417,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate: (id) => generateRef.current(id),
+        generateStoryboard: (id) => generateStoryboardRef.current(id),
       },
       selected: true,
     };
@@ -689,6 +693,55 @@ function WorkflowCanvas() {
     generateRef.current = generate;
   }, [generate]);
 
+  const generateStoryboard = useCallback(async (id: string) => {
+    const source = nodesRef.current.find((item) => item.id === id);
+    if (!source || source.data.kind !== "text") return;
+    const text = String(source.data.result || source.data.prompt || "").trim();
+    if (!text) {
+      update(id, { error: "请先填写文本或生成文本结果。" });
+      return;
+    }
+    update(id, { storyboardGenerating: true, error: "" });
+    try {
+      const response = await fetch("/api/storyboards/generate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      const body = await readJson(response) as { storyboardShots?: StoryboardShot[]; error?: string; errorCode?: string };
+      if (!response.ok || !body.storyboardShots?.length) throw new Error(responseError(body, "INVALID_JSON_RESPONSE"));
+      const storyboardId = randomUuid();
+      const storyboardNode: WorkNode = {
+        id: storyboardId,
+        type: "work",
+        position: { x: source.position.x + 420, y: source.position.y },
+        data: {
+          kind: "storyboard",
+          title: KIND_META.storyboard.title,
+          prompt: "",
+          ratio: "16:9",
+          quality: "720p",
+          duration: 0,
+          storyboardShots: body.storyboardShots,
+          uploadAsset: (file) => uploadAssetRef.current(file),
+          update,
+          remove,
+          generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+        },
+      };
+      markUnsaved();
+      setNodes((current) => [...current, storyboardNode]);
+      setEdges((current) => addEdge({ id: `${id}-${storyboardId}-${randomUuid()}`, source: id, target: storyboardId, animated: true }, current));
+      update(id, { storyboardGenerating: false, error: "" });
+    } catch (error) {
+      update(id, { storyboardGenerating: false, error: error instanceof Error ? localizeError(error.message) : "分镜生成失败" });
+    }
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+  useEffect(() => {
+    generateStoryboardRef.current = generateStoryboard;
+  }, [generateStoryboard]);
+
   const uploadCanvasFile = useCallback(async (file: File) => {
     const projectId = projectRef.current?.id;
     if (!projectId) throw new Error("PROJECT_NOT_READY");
@@ -879,6 +932,7 @@ function WorkflowCanvas() {
         update,
         remove,
         generate,
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
       },
     }]);
     if (sourceId) fanOutGroupConnection(sourceId, id);
@@ -911,6 +965,7 @@ function WorkflowCanvas() {
           update,
           remove,
           generate: (nodeId) => generateRef.current(nodeId),
+          generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
         },
       })) as WorkNode[];
       const pastedEdges = (item.edges ?? []).map((edge) => ({
@@ -937,6 +992,44 @@ function WorkflowCanvas() {
     });
   }, [addNode, markUnsaved, reactFlow, remove, setEdges, setNodes, update]);
 
+  const createVideoFromStoryboardShot = useCallback((sourceNodeId: string, shot: StoryboardShot, position: { x: number; y: number }) => {
+    const source = nodesRef.current.find((node) => node.id === sourceNodeId);
+    if (!source || source.data.kind !== "storyboard") return;
+    const modelId = "kling-v3-omni";
+    const normalized = sanitizeVideoOptionsForModel(modelId, {
+      aspectRatio: "16:9",
+      resolution: "720p",
+      duration: shot.duration,
+    });
+    const id = randomUuid();
+    const videoNode: WorkNode = {
+      id,
+      type: "work",
+      position: { x: position.x - 140, y: position.y - 70 },
+      data: {
+        kind: "video",
+        title: `镜头 ${shot.shotNumber}`,
+        prompt: shot.videoPrompt,
+        ratio: normalized.aspectRatio,
+        quality: normalized.resolution,
+        model: modelId,
+        videoMode: normalized.mode,
+        motionPreset: "auto",
+        duration: normalized.duration,
+        negativePrompt: "",
+        sourceStoryboardShotId: shot.id,
+        uploadAsset: (file) => uploadAssetRef.current(file),
+        update,
+        remove,
+        generate: (nodeId) => generateRef.current(nodeId),
+        generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
+      },
+    };
+    markUnsaved();
+    setNodes((current) => [...current, videoNode]);
+    setEdges((current) => addEdge({ id: `${sourceNodeId}-${id}-${randomUuid()}`, source: sourceNodeId, target: id, animated: true }, current));
+  }, [markUnsaved, remove, setEdges, setNodes, update]);
+
   const openMenu = useCallback((x: number, y: number, sourceId?: string) => setMenu({ screen: { x, y }, flow: reactFlow.screenToFlowPosition({ x, y }), sourceId }), [reactFlow]);
   const onConnect = useCallback((connection: Connection) => {
     if (!connection.source || !connection.target) return;
@@ -949,12 +1042,24 @@ function WorkflowCanvas() {
   }, [openMenu]);
   const onDrop = useCallback((event: React.DragEvent) => {
     event.preventDefault();
+    const storyboardPayload = event.dataTransfer.getData("application/x-genora-storyboard-shot");
+    if (storyboardPayload) {
+      try {
+        const parsed = JSON.parse(storyboardPayload) as { sourceNodeId?: string; shot?: StoryboardShot };
+        if (parsed.sourceNodeId && parsed.shot) {
+          createVideoFromStoryboardShot(parsed.sourceNodeId, parsed.shot, reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY }));
+        }
+      } catch {
+        setSaveStatus("error");
+      }
+      return;
+    }
     const file = event.dataTransfer.files[0];
     if (!file) return;
     const position = reactFlow.screenToFlowPosition({ x: event.clientX, y: event.clientY });
     if (file.type.startsWith("image/")) addNode("media-image", position, file);
     if (file.type.startsWith("video/")) addNode("media-video", position, file);
-  }, [addNode, reactFlow]);
+  }, [addNode, createVideoFromStoryboardShot, reactFlow]);
   const onWheel = useCallback((event: React.WheelEvent) => {
     if (!event.ctrlKey) return;
     event.preventDefault();
@@ -1125,6 +1230,7 @@ function WorkflowCanvas() {
             update,
             remove,
             generate,
+            generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
           },
         };
       }) as WorkNode[];
@@ -1168,6 +1274,7 @@ function WorkflowCanvas() {
             update,
             remove,
             generate,
+            generateStoryboard: (nodeId) => generateStoryboardRef.current(nodeId),
           },
         }];
         launchChanged = true;

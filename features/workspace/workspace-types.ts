@@ -2,11 +2,19 @@ import type { Edge, Node } from "@xyflow/react";
 import type { CanvasRatio, CanvasResolution } from "@/lib/model-catalog";
 import type { VideoGenerationMode } from "@/lib/video-model-capabilities";
 
-export type Kind = "text" | "image" | "video" | "media-image" | "media-video" | "group";
+export type Kind = "text" | "image" | "video" | "storyboard" | "media-image" | "media-video" | "group";
 export type Ratio = CanvasRatio;
 export type Quality = CanvasResolution;
 export type MotionPreset = "auto" | "push-in" | "pull-out" | "pan-left" | "pan-right" | "tilt-up" | "orbit-left" | "orbit-right" | "low-angle" | "top-down";
 export type ThemeTone = "dark" | "light";
+export type StoryboardShot = {
+  id: string;
+  shotNumber: string;
+  visual: string;
+  cameraMotion: string;
+  duration: number;
+  videoPrompt: string;
+};
 export type IconName =
   | "text"
   | "image"
@@ -53,6 +61,9 @@ export type StoredWorkData = {
   endFrameName?: string;
   referenceFrameUrls?: string[];
   referenceFrameNames?: string[];
+  storyboardShots?: StoryboardShot[];
+  sourceStoryboardShotId?: string;
+  storyboardGenerating?: boolean;
   result?: string;
   taskId?: string;
   busy?: boolean;
@@ -69,6 +80,7 @@ export type RuntimeNodeActions = {
   update: (id: string, patch: Partial<StoredWorkData>) => void;
   remove: (id: string) => void;
   generate: (id: string) => void;
+  generateStoryboard: (id: string) => void;
 };
 export type WorkData = StoredWorkData & RuntimeNodeActions;
 

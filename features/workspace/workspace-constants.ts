@@ -86,6 +86,7 @@ export const KIND_META: Record<Kind, { title: string; subtitle: string; icon: Ic
   text: { title: "文本", subtitle: "GPT-5.5", icon: "text" },
   image: { title: "图像", subtitle: "Agnes Image 2.1 Flash", icon: "image" },
   video: { title: "视频", subtitle: "Agnes Video V2.0", icon: "video" },
+  storyboard: { title: "分镜表格", subtitle: "镜头结构", icon: "grid" },
   "media-image": { title: "图片素材", subtitle: "本地输入", icon: "image" },
   "media-video": { title: "视频素材", subtitle: "本地输入", icon: "video" },
   group: { title: "节点组", subtitle: "容器", icon: "grid" },

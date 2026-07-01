@@ -1,4 +1,4 @@
-import { memo, useEffect, useRef, useState, type CSSProperties } from "react";
+import { memo, useEffect, useRef, useState, type CSSProperties, type DragEvent } from "react";
 import { Handle, Position, useUpdateNodeInternals, type NodeProps } from "@xyflow/react";
 import { estimateCredits, getModelDefinition, modelCapabilityLabel, modelsForKind, normalizeModelOptions } from "@/lib/model-catalog";
 import { getProviderLogo } from "@/lib/provider-logo-map";
@@ -7,7 +7,7 @@ import { getAdaptiveMediaLayout, type AdaptiveMediaLayout } from "@/lib/node-med
 import { KIND_META, MOTION_PRESETS, RATIOS, VIDEO_QUALITIES } from "./workspace-constants";
 import { qualityLabel } from "./workspace-utils";
 import { Icon } from "./workspace-icon";
-import type { WorkNode } from "./workspace-types";
+import type { StoryboardShot, WorkNode } from "./workspace-types";
 function modelLogoClass(modelId: string) {
   const id = modelId.toLowerCase();
   if (id.includes("gemini")) return "model-logo-google";
@@ -193,6 +193,59 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
     );
   }
 
+  if (data.kind === "storyboard") {
+    const storyboardShots = data.storyboardShots ?? [];
+    const updateShot = (shotId: string, patch: Partial<StoryboardShot>) => {
+      data.update(id, {
+        storyboardShots: storyboardShots.map((shot) => shot.id === shotId ? { ...shot, ...patch } : shot),
+      });
+    };
+    const startShotDrag = (event: DragEvent<HTMLDivElement>, shot: StoryboardShot) => {
+      event.dataTransfer.effectAllowed = "copy";
+      event.dataTransfer.setData("application/x-genora-storyboard-shot", JSON.stringify({ sourceNodeId: id, shot }));
+      event.dataTransfer.setData("text/plain", shot.videoPrompt);
+    };
+    return (
+      <article className={`canvas-node glass storyboard ${data.selectionSuppressed ? "selection-suppressed" : ""}`}>
+        <Handle type="target" position={Position.Left} className="port left" />
+        <div className="node-badge">
+          <span>
+            <Icon name={meta.icon} />
+            {data.title}
+          </span>
+          <button aria-label="删除节点" onClick={() => data.remove(id)}>
+            <Icon name="close" />
+          </button>
+        </div>
+        <div className="storyboard-node-table nodrag">
+          <header>
+            <b>分镜表格</b>
+            <small>{storyboardShots.length} shots</small>
+          </header>
+          <div className="storyboard-table-head">
+            <span>镜号</span>
+            <span>画面描述</span>
+            <span>镜头运动</span>
+            <span>时长</span>
+            <span>视频提示词</span>
+          </div>
+          <div className="storyboard-table-body">
+            {storyboardShots.map((shot) => (
+              <div className="storyboard-table-row" key={shot.id} draggable onDragStart={(event) => startShotDrag(event, shot)}>
+                <input value={shot.shotNumber} onChange={(event) => updateShot(shot.id, { shotNumber: event.target.value })} />
+                <textarea value={shot.visual} onChange={(event) => updateShot(shot.id, { visual: event.target.value })} />
+                <textarea value={shot.cameraMotion} onChange={(event) => updateShot(shot.id, { cameraMotion: event.target.value })} />
+                <input type="number" min="1" max="20" value={shot.duration} onChange={(event) => updateShot(shot.id, { duration: Math.max(1, Math.round(Number(event.target.value) || 1)) })} />
+                <textarea value={shot.videoPrompt} onChange={(event) => updateShot(shot.id, { videoPrompt: event.target.value })} />
+              </div>
+            ))}
+          </div>
+        </div>
+        <Handle type="source" position={Position.Right} className="port right" />
+      </article>
+    );
+  }
+
   return (
     <article
       className={`canvas-node glass ${data.kind} ${textLengthClass} ${data.url ? "has-media" : ""} ${data.selectionSuppressed ? "selection-suppressed" : ""}`}
@@ -367,6 +420,17 @@ function WorkflowNode({ id, data }: NodeProps<WorkNode>) {
             placeholder="填写提示词，描述你想生成的内容..."
           />
           <div className="prompt-toolbar">
+            {data.kind === "text" && (
+              <button
+                type="button"
+                className="storyboard-trigger"
+                disabled={data.storyboardGenerating}
+                onClick={(event) => { event.stopPropagation(); data.generateStoryboard(id); }}
+              >
+                <Icon name="grid" />
+                {data.storyboardGenerating ? "生成中" : "分镜"}
+              </button>
+            )}
             {selectedModel && (
               <div className={`model-picker ${modelOpen ? "open" : ""}`}>
                 <button type="button" className="model-trigger model-trigger-logo" aria-label={selectedModel.label} title={selectedModel.label} onClick={(event) => { event.stopPropagation(); setModelOpen((open) => !open); data.update(id, { settingsOpen: false }); }}>
@@ -512,6 +576,9 @@ function areWorkNodePropsEqual(prev: NodeProps<WorkNode>, next: NodeProps<WorkNo
     a.endFrameName === b.endFrameName &&
     a.referenceFrameUrls === b.referenceFrameUrls &&
     a.referenceFrameNames === b.referenceFrameNames &&
+    a.storyboardShots === b.storyboardShots &&
+    a.sourceStoryboardShotId === b.sourceStoryboardShotId &&
+    a.storyboardGenerating === b.storyboardGenerating &&
     a.result === b.result &&
     a.taskId === b.taskId &&
     a.busy === b.busy &&
