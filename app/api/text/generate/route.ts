@@ -1,7 +1,10 @@
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
+import { checkGenerateRateLimit } from "@/lib/rate-limit";
 
 export async function POST(request: Request) {
+  const limited = checkGenerateRateLimit(request);
+  if (limited) return limited;
   if (!isAgnesConfigured("text")) {
     return errorResponse(new AppError("MISSING_AGNES_API_KEY", 503), 503);
   }

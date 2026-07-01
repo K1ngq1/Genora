@@ -1,7 +1,9 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
+import { ensureVisitorId } from "@/lib/visitor";
 import { scheduleVideoTask } from "@/lib/video-task-runner";
 import { ensureBackgroundVideoPolling } from "@/lib/video-task-sync";
 import { isApimartConfigured } from "@/lib/apimart";
@@ -31,6 +33,10 @@ function normalizeNumFrames(value: number) {
 }
 
 export async function POST(request: Request) {
+  const limited = checkGenerateRateLimit(request);
+  if (limited) return limited;
+  const responseHeaders = new Headers();
+  const visitorId = ensureVisitorId(request, responseHeaders);
   const form = await request.formData();
   const prompt = String(form.get("prompt") ?? "").trim();
   const negativePrompt = String(form.get("negativePrompt") ?? "").trim();
@@ -119,6 +125,7 @@ export async function POST(request: Request) {
     data: {
       type: inputPath ? "image-to-video" : "text-to-video",
       status: "pending",
+      visitorId,
       prompt,
       params: JSON.stringify({
         provider: model.provider,
@@ -151,5 +158,5 @@ export async function POST(request: Request) {
   scheduleVideoTask(task.id);
   ensureBackgroundVideoPolling();
 
-  return Response.json(publicTask(task));
+  return Response.json(publicTask(task), { headers: responseHeaders });
 }

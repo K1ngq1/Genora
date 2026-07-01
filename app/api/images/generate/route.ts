@@ -6,8 +6,10 @@ import { AppError, errorResponse } from "@/lib/error-codes";
 import { scheduleImageTask } from "@/lib/image-task-runner";
 import { estimateCredits, getModelDefinition, normalizeModelOptions } from "@/lib/model-catalog";
 import { preflightPublicImageUrl } from "@/lib/public-image-url";
+import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { saveBuffer } from "@/lib/storage";
 import { publicTask } from "@/lib/tasks";
+import { ensureVisitorId } from "@/lib/visitor";
 import { getImageSize, imageQualityFallbacks, normalizeImageQuality } from "@/lib/generation-quality";
 
 const DEFAULT_MODEL = "gpt-image-2";
@@ -37,6 +39,10 @@ async function persistReference(url: string, requestUrl: string) {
 }
 
 export async function POST(request: Request) {
+  const limited = checkGenerateRateLimit(request);
+  if (limited) return limited;
+  const responseHeaders = new Headers();
+  const visitorId = ensureVisitorId(request, responseHeaders);
   try {
     const body = await request.json();
     const prompt = String(body.prompt ?? "").trim();
@@ -66,6 +72,7 @@ export async function POST(request: Request) {
       data: {
         type: "image",
         status: "pending",
+        visitorId,
         prompt,
         params: JSON.stringify({
           provider: model.provider,
@@ -85,7 +92,7 @@ export async function POST(request: Request) {
       },
     });
     scheduleImageTask(task.id);
-    return Response.json(publicTask(task));
+    return Response.json(publicTask(task), { headers: responseHeaders });
   } catch (error) {
     return errorResponse(error, error instanceof AppError ? error.status : 502);
   }
