@@ -1,5 +1,6 @@
 import { generateAgnesImage, generateAgnesMessages, generateAgnesMessagesWithTools, generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
-import { AppError, errorResponse } from "@/lib/error-codes";
+import { AppError, errorCodeFromUnknown, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { promptLengthResponse } from "@/lib/payload-limits";
 import { saveBuffer, storageUrl } from "@/lib/storage";
@@ -36,6 +37,7 @@ export async function POST(request: Request) {
     }
     return errorResponse(new AppError("UNSUPPORTED_AGENT_MODEL", 400), 400);
   } catch (error) {
+    providerLog("generate", "error", { route: "agent", code: errorCodeFromUnknown(error) });
     return errorResponse(error, 502);
   }
 }

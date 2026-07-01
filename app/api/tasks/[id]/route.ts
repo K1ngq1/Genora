@@ -1,5 +1,6 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
 import { startImageTask } from "@/lib/image-task-runner";
 import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
 import { ownsTask, publicTask } from "@/lib/tasks";
@@ -12,7 +13,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
   const { id } = await context.params;
   const visitorId = getVisitorId(request);
   let task = await db.task.findUnique({ where: { id } });
-  if (!ownsTask(task, visitorId)) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  if (!ownsTask(task, visitorId)) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   if (task.type === "image" && ["pending", "processing"].includes(task.status)) {
     void startImageTask(task.id);
@@ -43,7 +47,10 @@ export async function DELETE(request: Request, context: { params: Promise<{ id: 
   const { id } = await context.params;
   const visitorId = getVisitorId(request);
   const task = await db.task.findUnique({ where: { id } });
-  if (!ownsTask(task, visitorId)) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  if (!ownsTask(task, visitorId)) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   const timedOut = new URL(request.url).searchParams.get("reason") === "timeout";
   const updated = await db.task.update({

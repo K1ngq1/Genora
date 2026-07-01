@@ -1,4 +1,5 @@
-import { AppError, errorResponse } from "@/lib/error-codes";
+import { AppError, errorCodeFromUnknown, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
 import { generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { promptLengthResponse } from "@/lib/payload-limits";
@@ -17,6 +18,7 @@ export async function POST(request: Request) {
   try {
     return Response.json({ text: await generateAgnesText(prompt), model: "agnes-2.0-flash" });
   } catch (error) {
+    providerLog("generate", "error", { route: "text", code: errorCodeFromUnknown(error) });
     return errorResponse(error, 502);
   }
 }

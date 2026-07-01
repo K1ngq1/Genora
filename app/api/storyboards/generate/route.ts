@@ -1,5 +1,6 @@
 import { generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
-import { AppError, errorResponse } from "@/lib/error-codes";
+import { AppError, errorCodeFromUnknown, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { promptLengthResponse } from "@/lib/payload-limits";
 
@@ -73,6 +74,7 @@ export async function POST(request: Request) {
     if (!storyboardShots.length) throw new AppError("INVALID_JSON_RESPONSE", 502);
     return Response.json({ storyboardShots });
   } catch (error) {
+    providerLog("generate", "error", { route: "storyboard", code: errorCodeFromUnknown(error) });
     if (error instanceof AppError) return errorResponse(error, error.status);
     return errorResponse(new AppError("INVALID_JSON_RESPONSE", 502), 502);
   }

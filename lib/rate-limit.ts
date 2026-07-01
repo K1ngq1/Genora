@@ -4,6 +4,8 @@
 // instances or serverless concurrency, replace `buckets` with a shared store
 // such as Redis or Upstash Ratelimit so limits hold globally.
 
+import { providerLog } from "@/lib/provider-log";
+
 const buckets = new Map<string, { count: number; resetAt: number }>();
 
 export function getClientIp(request: Request): string {
@@ -42,7 +44,7 @@ export function rateLimitedResponse(): Response {
 /** Returns null when allowed, or a 429 Response when over the generate rate limit. */
 export function checkGenerateRateLimit(request: Request): Response | null {
   const ip = getClientIp(request);
-  return rateLimit(`generate:${ip}`, GENERATE_RATE_LIMIT.limit, GENERATE_RATE_LIMIT.windowMs)
-    ? null
-    : rateLimitedResponse();
+  if (rateLimit(`generate:${ip}`, GENERATE_RATE_LIMIT.limit, GENERATE_RATE_LIMIT.windowMs)) return null;
+  providerLog("rate-limit", "rejected", { ip });
+  return rateLimitedResponse();
 }
