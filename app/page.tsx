@@ -21,6 +21,7 @@ import { HomeSidebar } from "@/features/home/home-sidebar";
 import { HomeStage } from "@/features/home/home-stage";
 import { getSpeechRecognition, type SpeechRecognitionLike } from "@/features/home/speech-recognition";
 import type { HomeChatSession, HomeMessage, HomeTask } from "@/features/home/home-types";
+import { useAuth } from "@/features/auth/auth-provider";
 import "./home.css";
 
 const HOME_CHAT_STORAGE_KEY = "genora.home.chatSessions.v1";
@@ -54,6 +55,7 @@ function storeSessions(sessions: HomeChatSession[]) {
 
 function HomePageContent() {
   const router = useRouter();
+  const { requireAuth, hydrated, isAuthed, openAuthDialog } = useAuth();
   const searchParams = useSearchParams();
   const imageInputRef = useRef<HTMLInputElement>(null);
   const recognitionRef = useRef<SpeechRecognitionLike | null>(null);
@@ -124,11 +126,16 @@ function HomePageContent() {
   useEffect(() => {
     const projectId = searchParams.get("project");
     if (!projectId) return;
+    if (!hydrated) return;
+    if (!isAuthed) {
+      openAuthDialog("canvas");
+      return;
+    }
     const next = new URLSearchParams(searchParams.toString());
     next.delete("project");
     const suffix = next.toString();
     router.replace(`/workspace?project=${encodeURIComponent(projectId)}${suffix ? `&${suffix}` : ""}`);
-  }, [router, searchParams]);
+  }, [router, searchParams, hydrated, isAuthed, openAuthDialog]);
 
   useEffect(() => () => {
     if (imagePreview) URL.revokeObjectURL(imagePreview);
@@ -246,6 +253,7 @@ function HomePageContent() {
   const submitHomeGeneration = async () => {
     const content = prompt.trim();
     if (!content || generationBusy) return;
+    if (!requireAuth("submit")) return;
     const userMessageId = crypto.randomUUID();
     const taskMessageId = crypto.randomUUID();
     const taskModel = selectedModel;

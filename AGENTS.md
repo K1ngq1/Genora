@@ -564,7 +564,7 @@ chcp 65001
 
 git status
 
-set /p msg=Enter commit message: 
+set /p msg=Enter commit message:
 if "%msg%"=="" (
   echo Commit message cannot be empty.
   pause

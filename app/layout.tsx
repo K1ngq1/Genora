@@ -2,6 +2,8 @@ import type { Metadata } from "next";
 import "./globals.css";
 import "./workflow.css";
 import "@xyflow/react/dist/style.css";
+import { AuthProvider } from "@/features/auth/auth-provider";
+import { AuthDialog } from "@/features/auth/auth-dialog";
 
 export const metadata: Metadata = {
   title: "Genora",
@@ -11,7 +13,12 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: Readonly<{ children: React.ReactNode }>) {
   return (
     <html lang="zh-CN">
-      <body>{children}</body>
+      <body>
+        <AuthProvider>
+          {children}
+          <AuthDialog />
+        </AuthProvider>
+      </body>
     </html>
   );
 }

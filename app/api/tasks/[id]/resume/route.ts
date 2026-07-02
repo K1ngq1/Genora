@@ -1,14 +1,16 @@
-﻿import { db } from "@/lib/db";
+import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { getUserId } from "@/lib/get-user-id";
 import { providerLog } from "@/lib/provider-log";
-import { ownsTask, publicTask } from "@/lib/tasks";
+import { publicTask } from "@/lib/tasks";
 import { getVisitorId } from "@/lib/visitor";
 
 export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
+  const userId = await getUserId();
   const { id } = await context.params;
-  const visitorId = getVisitorId(request);
-  const task = await db.task.findUnique({ where: { id } });
-  if (!ownsTask(task, visitorId)) {
+  getVisitorId(request);
+  const task = await db.task.findFirst({ where: { id, userId } });
+  if (!task) {
     providerLog("task", "ownership-denied", { id, found: Boolean(task) });
     return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
   }

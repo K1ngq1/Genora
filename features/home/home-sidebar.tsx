@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { useState, type MouseEvent } from "react";
 import { GenoraMark, Icon } from "@/features/home/home-icons";
 import type { HomeChatSession } from "@/features/home/home-types";
+import { useAuth } from "@/features/auth/auth-provider";
 
 type HomeSidebarProps = {
   collapsed: boolean;
@@ -15,6 +16,7 @@ type HomeSidebarProps = {
 };
 
 export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleCollapsed, onNewChat, onSelectSession }: HomeSidebarProps) {
+  const { user, isAuthed, openAuthDialog, requireAuth, logout } = useAuth();
   const [accountOpen, setAccountOpen] = useState(false);
   const [searchOpen, setSearchOpen] = useState(false);
   const [chatsOpen, setChatsOpen] = useState(false);
@@ -30,6 +32,13 @@ export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleColl
   const handleSelectSession = (sessionId: string) => {
     onSelectSession(sessionId);
     setSearchOpen(false);
+  };
+  const handleUserClick = () => {
+    if (isAuthed) setAccountOpen((current) => !current);
+    else openAuthDialog("account");
+  };
+  const handleWorkspace = (event: MouseEvent<HTMLAnchorElement>) => {
+    if (!requireAuth("workspace")) event.preventDefault();
   };
 
   return (
@@ -57,7 +66,7 @@ export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleColl
             </div>
           )}
         </div>
-        <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间"><Icon name="nodes" /><span>工作空间</span></Link>
+        <Link className="logo-button" href="/projects" title="工作空间" data-label="工作空间" onClick={handleWorkspace}><Icon name="nodes" /><span>工作空间</span></Link>
         {collapsed && (
           <div className={`home-chat-anchor ${chatsOpen ? "open" : ""}`}>
             <button className="home-chat-bubble" type="button" title="最近聊天" data-label="最近聊天" onClick={() => setChatsOpen((current) => !current)}>
@@ -96,23 +105,22 @@ export function HomeSidebar({ collapsed, sessions, activeSessionId, onToggleColl
       </section>
       <div className="home-sidebar-bottom">
         <div className={`home-user-anchor ${accountOpen ? "open" : ""}`}>
-          <button className="logo-button home-user-button" type="button" title="登录" data-label="登录" onClick={() => setAccountOpen((current) => !current)}>
+          <button className="logo-button home-user-button" type="button" title={isAuthed ? (user?.name ?? "账户") : "登录"} data-label={isAuthed ? (user?.name ?? "账户") : "登录"} onClick={handleUserClick}>
             <Icon name="user" />
-            <span>登录</span>
+            <span>{isAuthed ? (user?.name ?? "账户") : "登录"}</span>
           </button>
-          {accountOpen && (
+          {accountOpen && isAuthed && (
             <div className="home-user-popover">
               <header className="home-user-card-head">
                 <span className="home-user-avatar"><Icon name="user" /></span>
                 <span>
-                  <b>游客账户</b>
-                  <small>登录后同步创作记录</small>
+                  <b>{user?.name ?? "账户"}</b>
+                  <small>{user?.email ?? ""}</small>
                 </span>
               </header>
               <div className="home-user-plan"><span>额度</span><b>-- 积分</b></div>
               <div className="home-user-plan"><span>计划</span><b>Free</b></div>
-              <button className="home-user-primary" type="button" onClick={() => setAccountOpen(false)}><Icon name="user" />登录 / 注册</button>
-              <button className="home-user-secondary" type="button" onClick={() => setAccountOpen(false)}><Icon name="logout" />退出登录</button>
+              <button className="home-user-secondary" type="button" onClick={() => { logout(); setAccountOpen(false); }}><Icon name="logout" />退出登录</button>
             </div>
           )}
         </div>
