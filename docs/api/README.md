@@ -5,7 +5,6 @@
 ## 当前文档
 
 - `apimart.md`：APIMart 图片/视频生成、上传、任务轮询与积分规则。
-- `auth-email.md`：账号注册验证码、密码重置邮件、SMTP 与 Supabase 表结构配置。
 - `gpt-image2-image-to-image.md`：KIE API 的 GPT Image 2 图生图任务创建接口。
 - `gpt-image2-text-to-image.md`：当前文件为空，待补全文生图接口文档。
 

@@ -1,21 +1,19 @@
 import { db } from "@/lib/db";
-import { getUserId } from "@/lib/get-user-id";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { providerLog } from "@/lib/provider-log";
 import { startImageTask } from "@/lib/image-task-runner";
 import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
-import { publicTask } from "@/lib/tasks";
+import { ownsTask, publicTask } from "@/lib/tasks";
 import { getVisitorId } from "@/lib/visitor";
 import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sync";
 import { startVideoTask } from "@/lib/video-task-runner";
 import { isActiveTaskStatus } from "@/lib/task-status";
 
 export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
-  const userId = await getUserId();
   const { id } = await context.params;
-  getVisitorId(request);
-  let task = await db.task.findFirst({ where: { id, userId } });
-  if (!task) {
+  const visitorId = getVisitorId(request);
+  let task = await db.task.findUnique({ where: { id } });
+  if (!ownsTask(task, visitorId)) {
     providerLog("task", "ownership-denied", { id, found: Boolean(task) });
     return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
   }
@@ -46,11 +44,10 @@ export async function GET(request: Request, context: { params: Promise<{ id: str
 }
 
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
-  const userId = await getUserId();
   const { id } = await context.params;
-  getVisitorId(request);
-  const task = await db.task.findFirst({ where: { id, userId } });
-  if (!task) {
+  const visitorId = getVisitorId(request);
+  const task = await db.task.findUnique({ where: { id } });
+  if (!ownsTask(task, visitorId)) {
     providerLog("task", "ownership-denied", { id, found: Boolean(task) });
     return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
   }

@@ -1,7 +1,6 @@
 import { saveBuffer, storageUrl } from "@/lib/storage";
 import { assetUrl } from "@/lib/assets";
 import { db } from "@/lib/db";
-import { getUserId } from "@/lib/get-user-id";
 
 const MAX_UPLOAD_SIZE = 100 * 1024 * 1024;
 const EXTENSIONS: Record<string, string> = {
@@ -14,11 +13,10 @@ const EXTENSIONS: Record<string, string> = {
 };
 
 export async function POST(request: Request) {
-  const userId = await getUserId();
   const form = await request.formData();
   const file = form.get("file");
   const projectId = String(form.get("projectId") ?? "").trim();
-  if (!projectId || !await db.project.findUnique({ where: { id: projectId, userId }, select: { id: true } })) {
+  if (!projectId || !await db.project.findUnique({ where: { id: projectId }, select: { id: true } })) {
     return Response.json({ error: "PROJECT_NOT_FOUND" }, { status: 404 });
   }
   if (!(file instanceof File) || !file.size) {
@@ -38,7 +36,6 @@ export async function POST(request: Request) {
   );
   const asset = await db.asset.create({
     data: {
-      userId,
       projectId,
       kind: file.type.startsWith("video/") ? "video" : "image",
       path,

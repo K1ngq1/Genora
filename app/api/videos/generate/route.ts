@@ -1,6 +1,5 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
-import { getUserId } from "@/lib/get-user-id";
 import { checkGenerateRateLimit } from "@/lib/rate-limit";
 import { MAX_REFERENCE_IMAGES, promptLengthResponse } from "@/lib/payload-limits";
 import { saveBuffer } from "@/lib/storage";
@@ -39,7 +38,6 @@ export async function POST(request: Request) {
   if (limited) return limited;
   const responseHeaders = new Headers();
   const visitorId = ensureVisitorId(request, responseHeaders);
-  const userId = await getUserId();
   const form = await request.formData();
   const prompt = String(form.get("prompt") ?? "").trim();
   const negativePrompt = String(form.get("negativePrompt") ?? "").trim();
@@ -128,7 +126,6 @@ export async function POST(request: Request) {
 
   const task = await db.task.create({
     data: {
-      userId,
       type: inputPath ? "image-to-video" : "text-to-video",
       status: "pending",
       visitorId,

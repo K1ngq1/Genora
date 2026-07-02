@@ -2,12 +2,10 @@ import { readFile } from "node:fs/promises";
 import path from "node:path";
 import { isSafeAssetPath } from "@/lib/assets";
 import { db } from "@/lib/db";
-import { getUserId } from "@/lib/get-user-id";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
-  const userId = await getUserId();
   const { id } = await context.params;
-  const asset = await db.asset.findUnique({ where: { id, userId } });
+  const asset = await db.asset.findUnique({ where: { id } });
   if (!asset || !isSafeAssetPath(asset.path)) return new Response("Not found", { status: 404 });
   try {
     const file = await readFile(asset.path);

@@ -9,7 +9,6 @@ datasource db {
 
 model Task {
   id           String   @id @default(cuid())
-  userId       String
   type         String
   status       String   @default("pending")
   prompt       String
@@ -23,13 +22,11 @@ model Task {
   canResume    Boolean  @default(false)
   visitorId    String?
 
-  @@index([userId])
   @@index([visitorId, createdAt])
 }
 
 model Project {
   id             String   @id @default(cuid())
-  userId         String
   name           String   @default("empty space")
   canvasData     String
   requiresRename Boolean  @default(true)
@@ -37,13 +34,10 @@ model Project {
   updatedAt      DateTime @updatedAt
   lastOpenedAt   DateTime @default(now())
   assets         Asset[]
-
-  @@index([userId])
 }
 
 model Asset {
   id           String   @id @default(cuid())
-  userId       String
   kind         String   @default("image")
   projectId    String?
   nodeId       String?
@@ -58,5 +52,4 @@ model Asset {
   project      Project? @relation(fields: [projectId], references: [id], onDelete: Cascade)
 
   @@index([projectId])
-  @@index([userId])
 }
