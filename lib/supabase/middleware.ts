@@ -7,7 +7,7 @@ export async function updateSession(request: NextRequest) {
   // Public routes must stay reachable even before Supabase env vars are configured.
   // `/` is public so logged-out visitors land on the home page; the home UI opens
   // a login dialog when auth is required for an action.
-  const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/terms", "/privacy", "/api/config", "/_next", "/favicon.ico"];
+  const publicPaths = ["/", "/login", "/register", "/forgot-password", "/reset-password", "/terms", "/privacy", "/api/auth", "/api/config", "/_next", "/favicon.ico"];
   const isPublicPath = publicPaths.some(
     (path) =>
       request.nextUrl.pathname === path ||
