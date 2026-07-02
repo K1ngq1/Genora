@@ -1,13 +1,19 @@
 import { db } from "@/lib/db";
 import { AppError, errorResponse } from "@/lib/error-codes";
 import { getUserId } from "@/lib/get-user-id";
+import { providerLog } from "@/lib/provider-log";
 import { publicTask } from "@/lib/tasks";
+import { getVisitorId } from "@/lib/visitor";
 
-export async function PATCH(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function PATCH(request: Request, context: { params: Promise<{ id: string }> }) {
   const userId = await getUserId();
   const { id } = await context.params;
-  const task = await db.task.findUnique({ where: { id, userId } });
-  if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  getVisitorId(request);
+  const task = await db.task.findFirst({ where: { id, userId } });
+  if (!task) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   if (task.type === "image") {
     return errorResponse(new AppError("UNKNOWN_ERROR", 400, "生图任务不支持恢复查询"), 400);
@@ -32,7 +38,7 @@ export async function PATCH(_request: Request, context: { params: Promise<{ id: 
   delete params.lastRemoteStatus;
 
   const updated = await db.task.update({
-    where: { id, userId },
+    where: { id },
     data: {
       status: "queued",
       canResume: false,

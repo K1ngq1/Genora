@@ -1,5 +1,8 @@
 import { generateAgnesText, isAgnesConfigured } from "@/lib/agnes";
-import { AppError, errorResponse } from "@/lib/error-codes";
+import { AppError, errorCodeFromUnknown, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
+import { checkGenerateRateLimit } from "@/lib/rate-limit";
+import { promptLengthResponse } from "@/lib/payload-limits";
 
 type StoryboardShot = {
   id: string;
@@ -42,12 +45,16 @@ function normalizeShot(value: unknown, index: number): StoryboardShot | null {
 }
 
 export async function POST(request: Request) {
+  const limited = checkGenerateRateLimit(request);
+  if (limited) return limited;
   if (!isAgnesConfigured("text")) {
     return errorResponse(new AppError("MISSING_AGNES_API_KEY", 503), 503);
   }
   const body = await request.json();
   const sourceText = String(body.text ?? body.prompt ?? "").trim();
   if (!sourceText) return errorResponse(new AppError("EMPTY_TEXT_PROMPT", 400), 400);
+  const tooLong = promptLengthResponse(sourceText);
+  if (tooLong) return tooLong;
 
   const prompt = [
     "You are a storyboard planner for short AI-generated videos.",
@@ -67,6 +74,7 @@ export async function POST(request: Request) {
     if (!storyboardShots.length) throw new AppError("INVALID_JSON_RESPONSE", 502);
     return Response.json({ storyboardShots });
   } catch (error) {
+    providerLog("generate", "error", { route: "storyboard", code: errorCodeFromUnknown(error) });
     if (error instanceof AppError) return errorResponse(error, error.status);
     return errorResponse(new AppError("INVALID_JSON_RESPONSE", 502), 502);
   }

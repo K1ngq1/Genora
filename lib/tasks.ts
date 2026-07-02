@@ -30,6 +30,25 @@ export function publicTask(task: Task) {
   };
 }
 
+/**
+ * Type guard: true when the caller owns the task. Legacy tasks with
+ * visitorId=null stay visible to everyone so historical records are not lost
+ * after the visitor-isolation rollout.
+ */
+export function ownsTask(task: Task | null, visitorId: string | undefined): task is Task {
+  if (!task) return false;
+  return !task.visitorId || task.visitorId === visitorId;
+}
+
+export type PublicTask = ReturnType<typeof publicTask>;
+
+export type TaskListResponse = {
+  items: PublicTask[];
+  page: number;
+  pageSize: number;
+  hasMore: boolean;
+};
+
 export function errorMessage(error: unknown) {
   return errorCodeFromUnknown(error);
 }

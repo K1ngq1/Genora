@@ -21,8 +21,10 @@ model Task {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
   canResume    Boolean  @default(false)
+  visitorId    String?
 
   @@index([userId])
+  @@index([visitorId, createdAt])
 }
 
 model Project {

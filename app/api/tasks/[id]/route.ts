@@ -1,18 +1,24 @@
 import { db } from "@/lib/db";
 import { getUserId } from "@/lib/get-user-id";
 import { AppError, errorResponse } from "@/lib/error-codes";
+import { providerLog } from "@/lib/provider-log";
 import { startImageTask } from "@/lib/image-task-runner";
 import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
 import { publicTask } from "@/lib/tasks";
+import { getVisitorId } from "@/lib/visitor";
 import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sync";
 import { startVideoTask } from "@/lib/video-task-runner";
 import { isActiveTaskStatus } from "@/lib/task-status";
 
-export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
+export async function GET(request: Request, context: { params: Promise<{ id: string }> }) {
   const userId = await getUserId();
   const { id } = await context.params;
-  let task = await db.task.findUnique({ where: { id, userId } });
-  if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  getVisitorId(request);
+  let task = await db.task.findFirst({ where: { id, userId } });
+  if (!task) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   if (task.type === "image" && ["pending", "processing"].includes(task.status)) {
     void startImageTask(task.id);
@@ -42,12 +48,16 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
 export async function DELETE(request: Request, context: { params: Promise<{ id: string }> }) {
   const userId = await getUserId();
   const { id } = await context.params;
-  const task = await db.task.findUnique({ where: { id, userId } });
-  if (!task) return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  getVisitorId(request);
+  const task = await db.task.findFirst({ where: { id, userId } });
+  if (!task) {
+    providerLog("task", "ownership-denied", { id, found: Boolean(task) });
+    return errorResponse(new AppError("TASK_NOT_FOUND", 404), 404);
+  }
 
   const timedOut = new URL(request.url).searchParams.get("reason") === "timeout";
   const updated = await db.task.update({
-    where: { id, userId },
+    where: { id },
     data: {
       status: timedOut ? "timeout" : "cancelled",
       error: timedOut ? (task.type === "image" ? "TASK_POLL_TIMEOUT" : "AGNES_VIDEO_TIMEOUT") : "INTERRUPTED_BY_USER",
