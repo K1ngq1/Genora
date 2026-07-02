@@ -59,7 +59,7 @@ export default function ProjectsPage() {
     if (!response.ok) return setError("新建项目失败");
     const project = await readJson(response) as ProjectSummary;
     window.localStorage.setItem("genora-current-project", project.id);
-    router.push(`/?project=${encodeURIComponent(project.id)}`);
+    router.push(`/workspace?project=${encodeURIComponent(project.id)}`);
   };
 
   const startRename = (project: ProjectSummary) => {
@@ -107,7 +107,7 @@ export default function ProjectsPage() {
     <main className="projects-page">
       <header className="projects-header">
         <div>
-          <Link href="/" className="projects-back">← 返回画布</Link>
+          <Link href="/" className="projects-back">← 返回首页</Link>
           <p>Genora Project Library</p>
           <h1>作品库</h1>
           <span>打开已保存的创作空间，或从 empty space 开始新项目。</span>
@@ -129,7 +129,7 @@ export default function ProjectsPage() {
           <article className="project-card" key={project.id}>
             <Link
               className="project-preview"
-              href={`/?project=${encodeURIComponent(project.id)}`}
+              href={`/workspace?project=${encodeURIComponent(project.id)}`}
               onClick={() => window.localStorage.setItem("genora-current-project", project.id)}
             >
               <span className="project-orb" />

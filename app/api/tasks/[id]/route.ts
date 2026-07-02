@@ -6,6 +6,7 @@ import { isApimartTask, syncApimartTask } from "@/lib/apimart-task-sync";
 import { publicTask } from "@/lib/tasks";
 import { ensureBackgroundVideoPolling, syncVideoTask } from "@/lib/video-task-sync";
 import { startVideoTask } from "@/lib/video-task-runner";
+import { isActiveTaskStatus } from "@/lib/task-status";
 
 export async function GET(_request: Request, context: { params: Promise<{ id: string }> }) {
   const userId = await getUserId();
@@ -23,7 +24,7 @@ export async function GET(_request: Request, context: { params: Promise<{ id: st
     task = await db.task.findUnique({ where: { id } }) ?? task;
   }
 
-  if (task.type !== "image") ensureBackgroundVideoPolling();
+  if (task.type !== "image" && task.remoteTaskId && isActiveTaskStatus(task.status)) ensureBackgroundVideoPolling();
   const synced = isApimartTask(task)
     ? { task: await syncApimartTask(task) }
     : task.type === "image" ? { task } : await syncVideoTask(task);
